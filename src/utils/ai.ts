@@ -169,11 +169,16 @@ async function aiJson<T>(
         ],
         { json: true, temperature: 0.7 }
       )
-      const data = unwrapArray(extractJson<unknown>(content))
-      if (!validate(data)) {
-        throw new AIError('AI 返回的数据结构不符合预期，请重试', 'parse')
+      const data = extractJson<unknown>(content)
+      // 优先整体校验（对象包装型结果如 {issues:[...]}）；失败再尝试解包数组（数组型结果）
+      if (validate(data)) {
+        return data
       }
-      return data
+      const unwrapped = unwrapArray(data)
+      if (unwrapped !== data && validate(unwrapped)) {
+        return unwrapped
+      }
+      throw new AIError('AI 返回的数据结构不符合预期，请重试', 'parse')
     } catch (e) {
       lastErr = e as Error
       if (e instanceof AIError && e.code === 'parse' && i < retries) continue
