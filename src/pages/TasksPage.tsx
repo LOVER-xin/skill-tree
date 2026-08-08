@@ -1,52 +1,31 @@
 import { useState } from 'react'
-import { CheckSquare, Plus, Calendar, Tag, Clock, Filter } from 'lucide-react'
+import { CheckSquare, Plus, Calendar, Tag, Clock, Filter, X } from 'lucide-react'
 import { Task } from '../types'
-
-const mockTasks: Task[] = [
-  {
-    id: '1',
-    title: '完成React Hooks练习',
-    description: '完成useState和useEffect的实际练习项目',
-    skillId: '2',
-    status: 'in-progress',
-    priority: 'high',
-    estimatedMinutes: 60,
-    actualMinutes: 30,
-    dueDate: new Date('2024-01-15'),
-    tags: ['React', '前端', '练习'],
-    subtasks: [
-      { id: '1-1', title: '创建组件结构', completed: true, estimatedMinutes: 15 },
-      { id: '1-2', title: '实现状态管理', completed: false, estimatedMinutes: 25 },
-      { id: '1-3', title: '添加副作用处理', completed: false, estimatedMinutes: 20 }
-    ],
-    aiGenerated: false
-  },
-  {
-    id: '2',
-    title: '学习TypeScript基础语法',
-    description: 'AI推荐：基于你的JavaScript基础，建议学习TypeScript',
-    skillId: '5',
-    status: 'todo',
-    priority: 'medium',
-    estimatedMinutes: 90,
-    tags: ['TypeScript', '编程语言', 'AI推荐'],
-    subtasks: [
-      { id: '2-1', title: '类型系统概述', completed: false, estimatedMinutes: 30 },
-      { id: '2-2', title: '接口和类型别名', completed: false, estimatedMinutes: 30 },
-      { id: '2-3', title: '泛型基础', completed: false, estimatedMinutes: 30 }
-    ],
-    aiGenerated: true
-  }
-]
+import { useAppStore } from '../store'
+import { useActiveTree } from '../store'
+import { formatDuration } from '../utils'
 
 export function TasksPage() {
-  const [tasks] = useState<Task[]>(mockTasks)
+  const tasks = useAppStore((s) => s.tasks)
+  const addTask = useAppStore((s) => s.addTask)
+  const deleteTask = useAppStore((s) => s.deleteTask)
+  const toggleSubtask = useAppStore((s) => s.toggleSubtask)
+  const setTaskStatus = useAppStore((s) => s.setTaskStatus)
+  const tree = useActiveTree()
+
   const [filter, setFilter] = useState<'all' | 'todo' | 'in-progress' | 'completed'>('all')
   const [showAddTask, setShowAddTask] = useState(false)
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    priority: 'medium' as Task['priority'],
+    estimatedMinutes: 60,
+    skillId: '',
+    tags: '',
+  })
 
-  const filteredTasks = tasks.filter(task => 
-    filter === 'all' || task.status === filter
-  )
+  const filteredTasks = tasks.filter((task) => filter === 'all' || task.status === filter)
+  const skillName = (id?: string) => tree?.skills.find((s) => s.id === id)?.name
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -64,6 +43,31 @@ export function TasksPage() {
       case 'todo': return 'text-gray-600 bg-gray-50'
       default: return 'text-gray-600 bg-gray-50'
     }
+  }
+
+  const handleAddTask = () => {
+    if (!form.title.trim()) return
+    const subtasks = ['学习与理解', '动手实践', '总结复盘'].map((name, i) => ({
+      id: `sub-${Date.now()}-${i}`,
+      title: name,
+      completed: false,
+      estimatedMinutes: Math.round(form.estimatedMinutes / 3),
+    }))
+    addTask({
+      title: form.title.trim(),
+      description: form.description.trim() || '自定义学习任务',
+      skillId: form.skillId || undefined,
+      priority: form.priority,
+      estimatedMinutes: form.estimatedMinutes,
+      tags: form.tags
+        .split(/[,，\s]+/)
+        .filter(Boolean)
+        .slice(0, 5),
+      subtasks,
+      dueDate: new Date(Date.now() + 3 * 86400000),
+    })
+    setForm({ title: '', description: '', priority: 'medium', estimatedMinutes: 60, skillId: '', tags: '' })
+    setShowAddTask(false)
   }
 
   return (
@@ -92,11 +96,11 @@ export function TasksPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <Filter className="w-5 h-5 text-gray-400" />
-              <div className="flex space-x-2">
-                {['all', 'todo', 'in-progress', 'completed'].map((status) => (
+              <div className="flex space-x-2 flex-wrap">
+                {(['all', 'todo', 'in-progress', 'completed'] as const).map((status) => (
                   <button
                     key={status}
-                    onClick={() => setFilter(status as any)}
+                    onClick={() => setFilter(status)}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                       filter === status
                         ? 'bg-blue-100 text-blue-700'
@@ -109,98 +113,128 @@ export function TasksPage() {
               </div>
             </div>
             <div className="text-sm text-gray-600">
-              共 {filteredTasks.length} 个任务
+              共 {filteredTasks.length} 个任务 · 已完成 {tasks.filter((t) => t.status === 'completed').length} 个
             </div>
           </div>
         </div>
 
         {/* Task List */}
         <div className="space-y-4">
-          {filteredTasks.map((task) => (
-            <div key={task.id} className="bg-white rounded-xl shadow-sm border p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center space-x-3 mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900">{task.title}</h3>
-                    {task.aiGenerated && (
-                      <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded-full text-xs font-medium">
-                        AI推荐
+          {filteredTasks.map((task) => {
+            const done = task.subtasks.filter((st) => st.completed).length
+            const total = task.subtasks.length
+            const progress = total > 0 ? Math.round((done / total) * 100) : task.status === 'completed' ? 100 : 0
+            return (
+              <div key={task.id} className="bg-white rounded-xl shadow-sm border p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-2 flex-wrap">
+                      <h3 className={`text-lg font-semibold text-gray-900 ${task.status === 'completed' ? 'line-through text-gray-400' : ''}`}>
+                        {task.title}
+                      </h3>
+                      {task.aiGenerated && (
+                        <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded-full text-xs font-medium">
+                          AI推荐
+                        </span>
+                      )}
+                      {skillName(task.skillId) && (
+                        <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-full text-xs font-medium">
+                          {skillName(task.skillId)}
+                        </span>
+                      )}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
+                        {task.status === 'todo' ? '待办' : task.status === 'in-progress' ? '进行中' : '已完成'}
                       </span>
-                    )}
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
-                      {task.status === 'todo' ? '待办' : task.status === 'in-progress' ? '进行中' : '已完成'}
-                    </span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
-                      {task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'}
-                    </span>
-                  </div>
-                  
-                  <p className="text-gray-600 mb-4">{task.description}</p>
-                  
-                  {/* Subtasks */}
-                  <div className="space-y-2 mb-4">
-                    {task.subtasks.map((subtask) => (
-                      <div key={subtask.id} className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          checked={subtask.completed}
-                          className="rounded border-gray-300"
-                          readOnly
-                        />
-                        <span className={`text-sm ${subtask.completed ? 'line-through text-gray-500' : 'text-gray-700'}`}>
-                          {subtask.title}
-                        </span>
-                        <span className="text-xs text-gray-500">({subtask.estimatedMinutes}分钟)</span>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {/* Tags */}
-                  <div className="flex items-center space-x-2 mb-4">
-                    <Tag className="w-4 h-4 text-gray-400" />
-                    <div className="flex space-x-1">
-                      {task.tags.map((tag) => (
-                        <span key={tag} className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
-                          {tag}
-                        </span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
+                        {task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'}
+                      </span>
+                    </div>
+
+                    <p className="text-gray-600 mb-4">{task.description}</p>
+
+                    {/* Subtasks */}
+                    <div className="space-y-2 mb-4">
+                      {task.subtasks.map((subtask) => (
+                        <div key={subtask.id} className="flex items-center space-x-2 group">
+                          <input
+                            type="checkbox"
+                            checked={subtask.completed}
+                            onChange={() => toggleSubtask(task.id, subtask.id)}
+                            className="rounded border-gray-300 cursor-pointer"
+                          />
+                          <span className={`text-sm ${subtask.completed ? 'line-through text-gray-500' : 'text-gray-700'}`}>
+                            {subtask.title}
+                          </span>
+                          <span className="text-xs text-gray-500">({subtask.estimatedMinutes}分钟)</span>
+                        </div>
                       ))}
                     </div>
+
+                    {/* Tags */}
+                    {task.tags.length > 0 && (
+                      <div className="flex items-center space-x-2 mb-4">
+                        <Tag className="w-4 h-4 text-gray-400" />
+                        <div className="flex space-x-1 flex-wrap">
+                          {task.tags.map((tag) => (
+                            <span key={tag} className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-                
-                <div className="ml-6 text-right">
-                  <div className="flex items-center text-sm text-gray-600 mb-2">
-                    <Clock className="w-4 h-4 mr-1" />
-                    <span>{task.estimatedMinutes}分钟</span>
-                  </div>
-                  {task.dueDate && (
+
+                  <div className="ml-6 text-right space-y-2 flex-shrink-0">
                     <div className="flex items-center text-sm text-gray-600">
-                      <Calendar className="w-4 h-4 mr-1" />
-                      <span>{task.dueDate.toLocaleDateString()}</span>
+                      <Clock className="w-4 h-4 mr-1" />
+                      <span>{formatDuration(task.estimatedMinutes)}</span>
                     </div>
-                  )}
+                    {task.dueDate && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-1" />
+                        <span>{new Date(task.dueDate).toLocaleDateString('zh-CN')}</span>
+                      </div>
+                    )}
+                    <div className="flex space-x-2 justify-end">
+                      {task.status !== 'completed' && (
+                        <button
+                          onClick={() => setTaskStatus(task.id, 'completed')}
+                          className="text-xs text-green-600 hover:text-green-800 font-medium"
+                        >
+                          标记完成
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`删除任务「${task.title}」？`)) deleteTask(task.id)
+                        }}
+                        className="text-xs text-gray-400 hover:text-red-500 font-medium"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress */}
+                <div className="mt-4 pt-4 border-t">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">完成进度</span>
+                    <span className="text-gray-900 font-medium">{done} / {total} · {progress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-300 ${task.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}`}
+                      style={{ width: `${progress}%` }}
+                    ></div>
+                  </div>
                 </div>
               </div>
-              
-              {/* Progress */}
-              <div className="mt-4 pt-4 border-t">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">完成进度</span>
-                  <span className="text-gray-900 font-medium">
-                    {task.subtasks.filter(st => st.completed).length} / {task.subtasks.length}
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
-                  <div
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(task.subtasks.filter(st => st.completed).length / task.subtasks.length) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
-        
+
         {filteredTasks.length === 0 && (
           <div className="text-center py-12">
             <CheckSquare className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -215,19 +249,94 @@ export function TasksPage() {
           </div>
         )}
       </div>
-      
-      {/* Add Task Modal (placeholder) */}
+
+      {/* Add Task Modal */}
       {showAddTask && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-96">
-            <h3 className="text-lg font-semibold mb-4">新建任务</h3>
-            <p className="text-gray-600 mb-4">功能开发中...</p>
-            <button
-              onClick={() => setShowAddTask(false)}
-              className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
-            >
-              关闭
-            </button>
+          <div className="bg-white p-6 rounded-lg w-[28rem] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">新建学习任务</h3>
+              <button onClick={() => setShowAddTask(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">任务标题 *</label>
+                <input
+                  type="text"
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  placeholder="例如：完成 React 状态管理练习"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                <textarea
+                  rows={2}
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="任务要做什么？"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">优先级</label>
+                  <select
+                    value={form.priority}
+                    onChange={(e) => setForm({ ...form, priority: e.target.value as Task['priority'] })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="low">低</option>
+                    <option value="medium">中</option>
+                    <option value="high">高</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">预估时长（分钟）</label>
+                  <input
+                    type="number"
+                    min={10}
+                    step={10}
+                    value={form.estimatedMinutes}
+                    onChange={(e) => setForm({ ...form, estimatedMinutes: Number(e.target.value) || 30 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">关联技能</label>
+                <select
+                  value={form.skillId}
+                  onChange={(e) => setForm({ ...form, skillId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">不关联</option>
+                  {tree?.skills.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">标签（逗号分隔）</label>
+                <input
+                  type="text"
+                  value={form.tags}
+                  onChange={(e) => setForm({ ...form, tags: e.target.value })}
+                  placeholder="例如：React, 练习, 项目"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <button
+                onClick={handleAddTask}
+                disabled={!form.title.trim()}
+                className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                创建任务
+              </button>
+            </div>
           </div>
         </div>
       )}
