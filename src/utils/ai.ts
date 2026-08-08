@@ -318,6 +318,69 @@ export async function aiRecommendCircles(
   return aiJson<AICircleSuggestion[]>(system, userPrompt, isCircleSuggestionList)
 }
 
+/* ==================== 结构检查 ==================== */
+
+export interface AITreeFix {
+  kind: 'relocate' | 'addPrerequisite' | 'removePrerequisite'
+  skill: string // 技能名
+  targetLayer?: number // relocate 目标层级（0=基础层）
+  prerequisite?: string // add/remove 前置技能名
+}
+
+export interface AITreeIssue {
+  type: 'layer' | 'prerequisite'
+  skill: string
+  issue: string
+  suggestion: string
+  fix: AITreeFix
+}
+
+export interface AITreeAudit {
+  issues: AITreeIssue[]
+}
+
+function isTreeAudit(data: unknown): data is AITreeAudit {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    Array.isArray((data as AITreeAudit).issues) &&
+    (data as AITreeAudit).issues.every(
+      (i) =>
+        typeof i === 'object' &&
+        i !== null &&
+        ['layer', 'prerequisite'].includes(i.type) &&
+        typeof i.skill === 'string' &&
+        typeof i.issue === 'string' &&
+        typeof i.suggestion === 'string' &&
+        typeof i.fix === 'object' &&
+        i.fix !== null &&
+        ['relocate', 'addPrerequisite', 'removePrerequisite'].includes(i.fix.kind)
+    )
+  )
+}
+
+/** AI 结构检查：分析技能树的层级递进与前置关系合理性 */
+export async function aiAuditTree(tree: SkillTreeTemplate): Promise<AITreeAudit> {
+  const treeData = tree.skills.map((s) => ({
+    name: s.name,
+    category: s.category,
+    prerequisites: s.prerequisites.map((p) => tree.skills.find((x) => x.id === p)?.name ?? p),
+    status: s.status,
+  }))
+  const system =
+    '你是技能树架构审查专家。审查技能树的层级递进与前置关系，找出以下问题（最多 5 条，按严重程度排序）：\n' +
+    '1. 层级矛盾：基础技能被放在高级层、或高级技能放在基础层（结合前置关系判断应有的层级）\n' +
+    '2. 缺失前置：技能缺少必要的先修技能（如 React 缺 JavaScript）\n' +
+    '3. 冗余前置：前置关系不合理（如 HTML 依赖 TypeScript）\n' +
+    '4. 孤立节点：没有任何前置也没有后继、且不属于该技能树方向\n' +
+    '每项必须给出可执行的修复指令。\n' +
+    '返回 JSON：{"issues":[{"type":"layer|prerequisite","skill":"技能名","issue":"问题描述","suggestion":"建议","fix":{"kind":"relocate|addPrerequisite|removePrerequisite","skill":"技能名","targetLayer":0,"prerequisite":"前置技能名"}}]}。' +
+    'fix.kind 为 relocate 时必须提供 targetLayer（0=基础层，数值越大越高级）；为 addPrerequisite/removePrerequisite 时必须提供 prerequisite。'
+  const userPrompt = `技能树「${tree.name}」（分类：${tree.category}）节点：\n${JSON.stringify(treeData, null, 1)}\n请审查并返回修复建议。`
+  const result = await aiJson<AITreeAudit>(system, userPrompt, isTreeAudit)
+  return result
+}
+
 /* ==================== 连接测试 ==================== */
 
 export async function testAIConnection(cfg: AIConfig): Promise<{ ok: boolean; message: string }> {

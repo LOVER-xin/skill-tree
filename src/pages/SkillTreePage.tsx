@@ -18,6 +18,8 @@ import {
   FolderMinus,
   Bot,
   LayoutGrid,
+  AlertTriangle,
+  ScanSearch,
 } from 'lucide-react'
 import { SkillStatus, SkillLevel, SkillNode } from '../types'
 import { useAppStore, useActiveTree } from '../store'
@@ -26,11 +28,13 @@ import { getSkillLevelFromXp } from '../utils'
 import {
   aiRecommendSkills,
   aiGenerateSkillBranches,
+  aiAuditTree,
   hasAIConfig,
   AIError,
   AISkillSuggestion,
+  AITreeIssue,
 } from '../utils/ai'
-import { computeTreeLayout, findSkillPosition, NODE_W } from '../utils/layout'
+import { computeTreeLayout, computeDepths, findSkillPosition, NODE_W } from '../utils/layout'
 
 type RecommendSource = 'local' | 'ai'
 
@@ -90,6 +94,21 @@ export function SkillTreePage() {
   const [branchChecked, setBranchChecked] = useState<Record<number, boolean>>({})
   // 拖拽状态
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  // AI 结构检查
+  const [showAuditModal, setShowAuditModal] = useState(false)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [auditIssues, setAuditIssues] = useState<AITreeIssue[]>([])
+  const [auditApplied, setAuditApplied] = useState<Record<number, boolean>>({})
+  // 拖放层级感知：悬停位置 + 待确认的矛盾放置
+  const [dragOverPos, setDragOverPos] = useState<{ x: number; y: number } | null>(null)
+  const [pendingDrop, setPendingDrop] = useState<{
+    id: string
+    x: number
+    y: number
+    targetLayer: number
+    conflicts: { name: string; layer: number }[]
+  } | null>(null)
 
   const skills = tree?.skills ?? []
   const selectedSkill = skills.find((s) => s.id === selectedSkillId) ?? null
@@ -99,15 +118,90 @@ export function SkillTreePage() {
   const canvasW = Math.max(820, ...skills.map((s) => s.position.x + NODE_W / 2 + 40))
   const canvasH = Math.max(600, ...skills.map((s) => s.position.y + 90))
 
+  const GRID = 20 // 吸附粒度
+  const LAYER_H = 140 // 层高（与布局引擎一致）
+
+  /** y 坐标 → 所在层级（0 = 底部基础层） */
+  const layerOf = (y: number) =>
+    Math.max(0, Math.min(6, Math.floor((canvasH - y) / LAYER_H)))
+
+  const layerName = (n: number) =>
+    ['基础层', '进阶层', '应用层', '高级层', '专家层', '大师层', '殿堂层'][n] ?? `第${n}层`
+
+  /** 层带的顶部 y（用于绘制引导线） */
+  const layerTopY = (n: number) => canvasH - (n + 1) * LAYER_H
+
+  /** 检查把技能放到目标层是否与前置递进关系矛盾（后继技能不能低于前置） */
+  const findLayerConflicts = (
+    id: string,
+    targetLayer: number
+  ): { name: string; layer: number }[] => {
+    const depth = computeDepths(skills)
+    const byId = new Map(skills.map((s) => [s.id, s]))
+    const dependents = new Set<string>()
+    const collect = (sid: string) => {
+      skills.forEach((s) => {
+        if (s.prerequisites.includes(sid) && !dependents.has(s.id)) {
+          dependents.add(s.id)
+          collect(s.id)
+        }
+      })
+    }
+    collect(id)
+    const conflicts: { name: string; layer: number }[] = []
+    dependents.forEach((did) => {
+      const d = depth.get(did) ?? 0
+      if (d <= targetLayer) {
+        conflicts.push({ name: byId.get(did)?.name ?? did, layer: d })
+      }
+    })
+    return conflicts
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const el = e.currentTarget
+    const rect = el.getBoundingClientRect()
+    setDragOverPos({
+      x: e.clientX - rect.left + el.scrollLeft,
+      y: e.clientY - rect.top + el.scrollTop,
+    })
+  }
+
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
+    setDragOverPos(null)
     if (!tree) return
     const id = e.dataTransfer.getData('text/plain')
     if (!id) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = Math.max(NODE_W / 2, Math.min(canvasW - NODE_W / 2, e.clientX - rect.left))
-    const y = Math.max(40, Math.min(canvasH - 40, e.clientY - rect.top))
+    const el = e.currentTarget
+    const rect = el.getBoundingClientRect()
+    // 关键修复：滚动偏移补偿（画布可滚动，否则松手位置错位）
+    let x = e.clientX - rect.left + el.scrollLeft
+    let y = e.clientY - rect.top + el.scrollTop
+    // 网格吸附，松手即固定
+    x = Math.round(x / GRID) * GRID
+    y = Math.round(y / GRID) * GRID
+    x = Math.max(NODE_W / 2, Math.min(canvasW - NODE_W / 2, x))
+    y = Math.max(40, Math.min(canvasH - 40, y))
+
+    const targetLayer = layerOf(y)
+    const conflicts = findLayerConflicts(id, targetLayer)
+    if (conflicts.length > 0) {
+      // 层级矛盾：等待人工确认
+      setPendingDrop({ id, x, y, targetLayer, conflicts })
+      return
+    }
     updateSkill(tree.id, id, { position: { x, y } })
+    setDraggingId(null)
+  }
+
+  const confirmPendingDrop = () => {
+    if (!tree || !pendingDrop) return
+    updateSkill(tree.id, pendingDrop.id, {
+      position: { x: pendingDrop.x, y: pendingDrop.y },
+    })
+    setPendingDrop(null)
     setDraggingId(null)
   }
 
@@ -116,6 +210,92 @@ export function SkillTreePage() {
     const { positions } = computeTreeLayout(tree.skills)
     applyLayout(tree.id, Object.fromEntries(positions))
     recordActivity(`以金字塔结构重新布局了「${tree.name}」`, 'skill')
+  }
+
+  /* ============ AI 结构检查 ============ */
+
+  const runAudit = async () => {
+    setAuditError(null)
+    setAuditIssues([])
+    setAuditApplied({})
+    if (!tree) return
+    if (!hasAIConfig()) {
+      setAuditError('尚未配置 AI 服务：请到「我的 → 设置」填写 API Key')
+      return
+    }
+    if (tree.skills.length === 0) {
+      setAuditError('技能树为空，先添加技能再检查')
+      return
+    }
+    setAuditLoading(true)
+    try {
+      const result = await aiAuditTree(tree)
+      setAuditIssues(result.issues)
+    } catch (e) {
+      setAuditError(e instanceof AIError ? e.message : (e as Error).message)
+    } finally {
+      setAuditLoading(false)
+    }
+  }
+
+  /** 把技能移动到指定层级（找该层空位，防重叠） */
+  const relocateSkill = (skillId: string, targetLayer: number) => {
+    if (!tree) return
+    const depth = computeDepths(skills)
+    const layerNodes = skills.filter((s) => (depth.get(s.id) ?? 0) === targetLayer)
+    const occupiedX = layerNodes.map((s) => s.position.x)
+    let x = 100 + NODE_W / 2
+    for (let i = 0; i < layerNodes.length + 2; i++) {
+      const cx = 100 + NODE_W / 2 + i * (NODE_W + 48)
+      if (!occupiedX.some((ox) => Math.abs(ox - cx) < NODE_W * 0.6)) {
+        x = cx
+        break
+      }
+    }
+    const y = canvasH - 60 - (targetLayer + 1) * LAYER_H + LAYER_H / 2
+    updateSkill(tree.id, skillId, { position: { x, y } })
+  }
+
+  const applyAuditIssue = (index: number) => {
+    if (!tree) return
+    const issue = auditIssues[index]
+    if (!issue) return
+    const byName = new Map(skills.map((s) => [s.name, s]))
+    const skill = byName.get(issue.fix.skill) ?? byName.get(issue.skill)
+    if (!skill) {
+      setAuditError(`找不到技能「${issue.fix.skill || issue.skill}」，无法应用`)
+      return
+    }
+    switch (issue.fix.kind) {
+      case 'relocate':
+        relocateSkill(skill.id, issue.fix.targetLayer ?? 0)
+        recordActivity(`应用 AI 建议：将「${skill.name}」移至第 ${issue.fix.targetLayer ?? 0} 层`, 'skill')
+        break
+      case 'addPrerequisite': {
+        const pre = byName.get(issue.fix.prerequisite ?? '')
+        if (!pre) {
+          setAuditError(`找不到前置技能「${issue.fix.prerequisite}」，无法添加`)
+          return
+        }
+        if (!skill.prerequisites.includes(pre.id)) {
+          updateSkill(tree.id, skill.id, { prerequisites: [...skill.prerequisites, pre.id] })
+          recordActivity(`应用 AI 建议：为「${skill.name}」添加前置「${pre.name}」`, 'skill')
+        }
+        break
+      }
+      case 'removePrerequisite': {
+        const pre = byName.get(issue.fix.prerequisite ?? '')
+        if (pre) {
+          updateSkill(tree.id, skill.id, {
+            prerequisites: skill.prerequisites.filter((p) => p !== pre.id),
+          })
+          recordActivity(`应用 AI 建议：移除「${skill.name}」的前置「${pre.name}」`, 'skill')
+        }
+        break
+      }
+    }
+    setAuditApplied({ ...auditApplied, [index]: true })
+    setAuditIssues(auditIssues.filter((_, i) => i !== index))
   }
 
   const getStatusIcon = (status: SkillStatus) => {
@@ -359,6 +539,18 @@ export function SkillTreePage() {
               <span>智能推荐</span>
             </button>
             <button
+              onClick={() => {
+                setAuditError(null)
+                setAuditIssues([])
+                setShowAuditModal(true)
+              }}
+              title="AI 检查层级与前置关系"
+              className="bg-teal-600 text-white px-3 py-2 rounded-lg hover:bg-teal-700 transition-colors flex items-center space-x-1"
+            >
+              <ScanSearch className="w-4 h-4" />
+              <span className="hidden sm:inline">AI 结构检查</span>
+            </button>
+            <button
               onClick={handleAutoLayout}
               disabled={!tree || tree.skills.length === 0}
               title="按金字塔结构自动布局（基础在下，逐层向上）"
@@ -443,14 +635,33 @@ export function SkillTreePage() {
                 <div
                   className="relative overflow-auto"
                   style={{ height: `${Math.min(canvasH, 700)}px` }}
-                  onDragOver={(e) => e.preventDefault()}
+                  onDragOver={handleDragOver}
                   onDrop={handleDrop}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverPos(null)
+                  }}
                 >
                   <div className="relative" style={{ width: `${canvasW}px`, height: `${canvasH}px` }}>
                     {/* 底部基础层 → 顶部高级层的方向提示 */}
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-300 font-medium tracking-widest select-none pointer-events-none" style={{ writingMode: 'vertical-rl' }}>
                       高级 ▲ 基础
                     </div>
+
+                    {/* 层级引导线：拖动时显示目标层级 */}
+                    {dragOverPos && (
+                      <>
+                        <div
+                          className="absolute left-0 right-0 border-t-2 border-dashed border-indigo-400 pointer-events-none z-20"
+                          style={{ top: layerTopY(layerOf(dragOverPos.y)) }}
+                        />
+                        <div
+                          className="absolute right-2 pointer-events-none z-20 px-2 py-0.5 rounded bg-indigo-600 text-white text-[11px] font-medium"
+                          style={{ top: layerTopY(layerOf(dragOverPos.y)) + 6 }}
+                        >
+                          第 {layerOf(dragOverPos.y)} 层 · {layerName(layerOf(dragOverPos.y))}
+                        </div>
+                      </>
+                    )}
                     <svg className="absolute inset-0 w-full h-full">
                       {skills.map((skill) =>
                         skill.prerequisites.map((preId) => {
@@ -983,6 +1194,135 @@ export function SkillTreePage() {
                 className="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
               >
                 创建技能树
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Audit Modal */}
+      {showAuditModal && tree && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[34rem] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center">
+                <ScanSearch className="w-5 h-5 text-teal-600 mr-2" />
+                AI 结构检查 · {tree.name}
+              </h3>
+              <button onClick={() => setShowAuditModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              检查层级递进与前置关系（层级矛盾 / 缺失前置 / 冗余依赖），建议逐条人工确认后应用。
+            </p>
+
+            {auditIssues.length === 0 && !auditLoading && !auditError && (
+              <button
+                onClick={runAudit}
+                className="w-full bg-teal-600 text-white py-2 rounded-lg font-medium hover:bg-teal-700 transition-colors"
+              >
+                开始检查
+              </button>
+            )}
+
+            {auditLoading && (
+              <div className="text-center py-10">
+                <div className="animate-spin w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+                <p className="text-gray-600 text-sm">AI 正在审查技能树结构...</p>
+              </div>
+            )}
+
+            {auditError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 mb-3">
+                <p className="font-medium mb-1">AI 调用失败</p>
+                <p>{auditError}</p>
+              </div>
+            )}
+
+            {auditIssues.length > 0 && (
+              <>
+                <div className="space-y-3 mb-4">
+                  {auditIssues.map((issue, i) => (
+                    <div key={i} className="p-4 rounded-lg border border-amber-200 bg-amber-50">
+                      <div className="flex items-center mb-1">
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 mr-2">
+                          {issue.type === 'layer' ? '层级' : '前置关系'}
+                        </span>
+                        <h4 className="font-semibold text-gray-900">{issue.skill}</h4>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-1">⚠️ {issue.issue}</p>
+                      <p className="text-xs text-teal-700 mb-3">💡 建议：{issue.suggestion}</p>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => applyAuditIssue(i)}
+                          className="flex-1 bg-teal-600 text-white py-1.5 rounded-lg text-sm font-medium hover:bg-teal-700 transition-colors"
+                        >
+                          应用修复
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAuditIssues(auditIssues.filter((_, idx) => idx !== i))
+                          }}
+                          className="px-4 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-sm hover:bg-gray-200 transition-colors"
+                        >
+                          忽略
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={runAudit}
+                  className="w-full bg-gray-100 text-gray-600 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+                >
+                  重新检查
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Drop Conflict Confirm */}
+      {pendingDrop && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[26rem]">
+            <h3 className="text-lg font-semibold mb-2 flex items-center">
+              <AlertTriangle className="w-5 h-5 text-yellow-500 mr-2" />
+              层级递进关系提示
+            </h3>
+            <p className="text-gray-600 mb-3">
+              把「{skills.find((s) => s.id === pendingDrop.id)?.name}」放到
+              <span className="font-medium text-indigo-600"> 第 {pendingDrop.targetLayer} 层 · {layerName(pendingDrop.targetLayer)}</span>
+              会破坏以下前置递进关系（后继技能不能低于前置技能）：
+            </p>
+            <div className="space-y-1 mb-4 max-h-32 overflow-y-auto">
+              {pendingDrop.conflicts.map((c) => (
+                <div key={c.name} className="flex items-center text-sm bg-yellow-50 rounded px-2 py-1">
+                  <span className="text-yellow-600 mr-1">⚠️</span>
+                  「{c.name}」目前在第 {c.layer} 层 · {layerName(c.layer)}，它依赖此技能
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mb-4">
+              仍然放置将导致视觉层级与依赖关系不一致（推荐取消，用「自动布局」恢复金字塔结构）
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={confirmPendingDrop}
+                className="flex-1 bg-yellow-500 text-white py-2 rounded-lg hover:bg-yellow-600 transition-colors"
+              >
+                仍然放置
+              </button>
+              <button
+                onClick={() => {
+                  setPendingDrop(null)
+                  setDraggingId(null)
+                }}
+                className="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                取消
               </button>
             </div>
           </div>
