@@ -106,19 +106,50 @@ export async function aiChat(
   return content
 }
 
-/** 从响应中提取 JSON（兼容 markdown 代码块包裹） */
+/** 从响应中提取 JSON（兼容 markdown 代码块包裹、裸对象序列、对象包装等常见 AI 输出格式） */
 export function extractJson<T>(text: string): T {
   let cleaned = text.trim()
   const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (fence) cleaned = fence[1].trim()
+
+  // 1. 直接解析
   try {
     return JSON.parse(cleaned) as T
-  } catch (e) {
-    throw new AIError(
-      `AI 返回内容无法解析为 JSON：${(e as Error).message}。原文片段：${cleaned.slice(0, 120)}`,
-      'parse'
-    )
+  } catch { /* fallthrough */ }
+
+  // 2. 裸对象序列 → 包成数组（DeepSeek json_object 模式常见：{"a":1},{"b":2}）
+  try {
+    return JSON.parse(`[${cleaned}]`) as T
+  } catch { /* fallthrough */ }
+
+  // 3. 截取首个 { 到最后一个 } 的完整对象
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    const sub = cleaned.slice(start, end + 1)
+    try {
+      return JSON.parse(sub) as T
+    } catch { /* fallthrough */ }
+    try {
+      return JSON.parse(`[${sub}]`) as T
+    } catch { /* fallthrough */ }
   }
+
+  throw new AIError(
+    `AI 返回内容无法解析为 JSON。原文片段：${cleaned.slice(0, 120)}`,
+    'parse'
+  )
+}
+
+/** 兼容对象包装：如果顶层是对象，尝试提取其中的数组字段（如 {data:[...]} / {items:[...]}） */
+function unwrapArray(data: unknown): unknown {
+  if (Array.isArray(data)) return data
+  if (data && typeof data === 'object') {
+    for (const v of Object.values(data)) {
+      if (Array.isArray(v)) return v
+    }
+  }
+  return data
 }
 
 /** 带重试的 JSON 调用 */
@@ -138,7 +169,7 @@ async function aiJson<T>(
         ],
         { json: true, temperature: 0.7 }
       )
-      const data = extractJson<unknown>(content)
+      const data = unwrapArray(extractJson<unknown>(content))
       if (!validate(data)) {
         throw new AIError('AI 返回的数据结构不符合预期，请重试', 'parse')
       }
