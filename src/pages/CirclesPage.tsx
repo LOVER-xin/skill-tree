@@ -3,7 +3,7 @@ import { Users, Hash, TrendingUp, MessageCircle, Heart, BookOpen, Calendar, Bot,
 import { useAppStore } from '../store'
 import { recommendCircles, collectUserSkillTags } from '../utils/recommend'
 import { useAllSkills } from '../store'
-import { SkillStatus } from '../types'
+import { SkillStatus, Circle } from '../types'
 import { aiRecommendCircles, hasAIConfig, AIError, AICircleSuggestion } from '../utils/ai'
 
 type Tab = 'recommend' | 'joined' | 'hot'
@@ -27,6 +27,8 @@ export function CirclesPage() {
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiCircles, setAiCircles] = useState<AICircleSuggestion[]>([])
   const [aiChecked, setAiChecked] = useState<Record<number, boolean>>({})
+  // 圈子资源库详情
+  const [resourceCircle, setResourceCircle] = useState<Circle | null>(null)
 
   const masteredTags = useMemo(
     () =>
@@ -240,17 +242,26 @@ export function CirclesPage() {
                       )}
                     </div>
 
-                    {/* Action Button */}
-                    <button
-                      onClick={() => (isJoined ? leaveCircle(circle.id) : joinCircle(circle.id))}
-                      className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                        isJoined
-                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                          : 'bg-blue-600 text-white hover:bg-blue-700'
-                      }`}
-                    >
-                      {isJoined ? '退出圈子' : '加入圈子'}
-                    </button>
+                    {/* Action Buttons */}
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => setResourceCircle(circle)}
+                        disabled={(circle.resources ?? []).length === 0}
+                        className="flex-1 py-2 rounded-lg font-medium transition-colors bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 disabled:hover:bg-indigo-50"
+                      >
+                        📚 资源库（{(circle.resources ?? []).length}）
+                      </button>
+                      <button
+                        onClick={() => (isJoined ? leaveCircle(circle.id) : joinCircle(circle.id))}
+                        className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
+                          isJoined
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        {isJoined ? '退出圈子' : '加入圈子'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )
@@ -305,6 +316,52 @@ export function CirclesPage() {
           </div>
         )}
       </div>
+      {/* Circle Resource Library Modal */}
+      {resourceCircle && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[32rem] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold flex items-center">
+                <BookOpen className="w-5 h-5 text-indigo-600 mr-2" />
+                圈子资源库 · {resourceCircle.name}
+              </h3>
+              <button onClick={() => setResourceCircle(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              该方向的精选课程/文章/视频。加入圈子后，学习相关技能时这些资源会出现在教学步骤里。
+            </p>
+            {(resourceCircle.resources ?? []).length > 0 ? (
+              <div className="space-y-2">
+                {resourceCircle.resources!.map((r) => (
+                  <a
+                    key={r.id}
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block p-3 rounded-lg bg-indigo-50/60 hover:bg-indigo-50 border border-indigo-100 transition-colors"
+                  >
+                    <div className="flex items-center text-sm font-medium text-gray-800">
+                      <span className="mr-1.5">{r.type === 'course' ? '🎓' : r.type === 'video' ? '🎬' : '📄'}</span>
+                      <span className="flex-1">{r.title}</span>
+                      <span className="text-indigo-500 text-xs ml-2">打开 →</span>
+                    </div>
+                    <div className="flex items-center text-xs text-gray-500 mt-1">
+                      <span className="mr-2">{r.source}</span>
+                      {r.durationMinutes && <span>约{r.durationMinutes}分钟</span>}
+                    </div>
+                    {r.description && <p className="text-xs text-gray-500 mt-1">{r.description}</p>}
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm text-center py-8">该圈子还没有收录资源</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* AI Recommend Circles Modal */}
       {showAIModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

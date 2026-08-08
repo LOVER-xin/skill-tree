@@ -53,6 +53,21 @@ export interface TeachQuizQuestion {
   explanation: string // 答错时的解析
 }
 
+/** 学习资源类型：课程 / 文章 / 视频 */
+export type ResourceType = 'course' | 'article' | 'video'
+
+/** 学习资源：课程、文章、视频推荐（推进学习的关键内容） */
+export interface LearningResource {
+  id: string
+  type: ResourceType
+  title: string
+  url: string
+  source?: string // 来源平台/网站，如 MDN、freeCodeCamp
+  durationMinutes?: number // 预估学习时长
+  description?: string
+  aiGenerated?: boolean // AI 推荐（链接请自行验证）
+}
+
 /** 教学步骤：一个技能内部的深度学习单元（从浅入深） */
 export interface TeachStep {
   id: string
@@ -63,6 +78,7 @@ export interface TeachStep {
   completed?: boolean       // 是否完成
   completedAt?: Date
   quizQuestions?: TeachQuizQuestion[] // type=quiz 时的题目（答对全部才可完成）
+  resources?: LearningResource[] // 推荐的课程/文章/视频
 }
 
 // 技能树模板
@@ -156,6 +172,7 @@ export interface Circle {
   tags: string[]
   memberCount: number
   skillTags: string[]      // 相关技能标签
+  resources?: LearningResource[] // 该技能方向的资源库（课程/文章/视频）
   posts: Post[]
   isPrivate: boolean
   createdAt: Date

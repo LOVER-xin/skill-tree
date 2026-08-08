@@ -90,12 +90,24 @@ export const seedTrees: SkillTreeTemplate[] = [
         tags: ['JavaScript', 'ES6', '前端'],
         position: { x: 670, y: 480 },
         teachSteps: [
-          { id: 'js-s1', title: '语法与数据类型', description: '变量声明（var/let/const）、原始类型与引用类型、类型转换陷阱', type: 'concept', durationMinutes: 40 },
+          { id: 'js-s1', title: '语法与数据类型', description: '变量声明（var/let/const）、原始类型与引用类型、类型转换陷阱', type: 'concept', durationMinutes: 40, resources: [
+            { id: 'r-js-s1-1', type: 'article', title: 'MDN：JavaScript 指南（语法与类型）', url: 'https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide/Grammar_and_types', source: 'MDN', durationMinutes: 40, description: '官方权威语法参考，含数据类型与类型转换' },
+            { id: 'r-js-s1-2', type: 'video', title: 'JavaScript 基础：变量与数据类型', url: 'https://www.youtube.com/results?search_query=javascript+variables+data+types+beginner', source: 'YouTube', durationMinutes: 20, description: '视频速览变量声明与数据类型' },
+          ] },
           { id: 'js-s2', title: '函数、作用域与闭包', description: '函数声明/表达式/箭头函数、作用域链、闭包的产生与用途', type: 'concept', durationMinutes: 50 },
-          { id: 'js-s3', title: '数组与对象方法', description: 'map/filter/reduce/find 等高阶方法、解构、展开运算符，完成一组练习', type: 'practice', durationMinutes: 60 },
+          { id: 'js-s3', title: '数组与对象方法', description: 'map/filter/reduce/find 等高阶方法、解构、展开运算符，完成一组练习', type: 'practice', durationMinutes: 60, resources: [
+            { id: 'r-js-s3-1', type: 'course', title: 'JavaScript.info：数组方法（英文）', url: 'https://zh.javascript.info/array-methods', source: 'JavaScript.info', durationMinutes: 60, description: '数组方法系统讲解 + 内嵌练习题' },
+            { id: 'r-js-s3-2', type: 'article', title: 'MDN：Array 方法参考', url: 'https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array', source: 'MDN', durationMinutes: 30, description: '查方法用这个，带示例与浏览器兼容性' },
+          ] },
           { id: 'js-s4', title: 'DOM 操作与事件', description: 'querySelector、创建/修改节点、事件监听与冒泡/捕获、事件委托', type: 'practice', durationMinutes: 60 },
-          { id: 'js-s5', title: '异步编程：事件循环与 Promise', description: '宏任务/微任务、Promise 链、async/await、错误处理，理解执行顺序', type: 'concept', durationMinutes: 60 },
-          { id: 'js-s6', title: '综合实战：Todo 应用', description: '用原生 JS 实现一个带增删改查/筛选/本地存储的 Todo 应用，检验全部所学', type: 'project', durationMinutes: 120 },
+          { id: 'js-s5', title: '异步编程：事件循环与 Promise', description: '宏任务/微任务、Promise 链、async/await、错误处理，理解执行顺序', type: 'concept', durationMinutes: 60, resources: [
+            { id: 'r-js-s5-1', type: 'article', title: 'MDN：使用 Promise', url: 'https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide/Using_promises', source: 'MDN', durationMinutes: 45, description: 'Promise 原理与链式调用权威讲解' },
+            { id: 'r-js-s5-2', type: 'article', title: 'JavaScript.info：async/await 与事件循环', url: 'https://zh.javascript.info/async', source: 'JavaScript.info', durationMinutes: 60, description: '异步专题，含微任务/宏任务执行顺序图解' },
+          ] },
+          { id: 'js-s6', title: '综合实战：Todo 应用', description: '用原生 JS 实现一个带增删改查/筛选/本地存储的 Todo 应用，检验全部所学', type: 'project', durationMinutes: 120, resources: [
+            { id: 'r-js-s6-1', type: 'course', title: 'freeCodeCamp：JavaScript 算法与数据结构（免费认证）', url: 'https://www.freecodecamp.org/learn/javascript-algorithms-and-data-structures/', source: 'freeCodeCamp', durationMinutes: 300, description: '免费系统课程，含大量编程练习' },
+            { id: 'r-js-s6-2', type: 'article', title: 'MDN：客户端存储（localStorage 指南）', url: 'https://developer.mozilla.org/zh-CN/docs/Web/API/Web_Storage_API/Using_the_Web_Storage_API', source: 'MDN', durationMinutes: 20, description: 'Todo 本地存储功能必备参考' },
+          ] },
           {
             id: 'js-s7',
             title: 'JavaScript 知识测验',
@@ -599,6 +611,11 @@ export const seedCircles: Circle[] = [
     tags: ['前端', 'React', 'Vue', 'JavaScript'],
     memberCount: 1250,
     skillTags: ['React', 'Vue', 'TypeScript', 'JavaScript', 'CSS'],
+    resources: [
+      { id: 'cr-fe-1', type: 'course', title: 'freeCodeCamp：响应式网页设计（免费认证）', url: 'https://www.freecodecamp.org/learn/2022/responsive-web-design/', source: 'freeCodeCamp', durationMinutes: 300, description: 'HTML/CSS 入门到实战的免费系统课程' },
+      { id: 'cr-fe-2', type: 'course', title: 'React 官方文档（新入门教程）', url: 'https://react.dev/learn', source: 'React 官方', durationMinutes: 240, description: '交互式 React 入门教程，官方维护' },
+      { id: 'cr-fe-3', type: 'article', title: 'MDN：HTML 与 CSS 参考', url: 'https://developer.mozilla.org/zh-CN/docs/Web/HTML', source: 'MDN', durationMinutes: 60, description: '前端基础权威查手册' },
+    ],
     posts: [],
     isPrivate: false,
     createdAt: daysAgo(200),
@@ -611,6 +628,10 @@ export const seedCircles: Circle[] = [
     tags: ['TypeScript', '类型系统', '泛型'],
     memberCount: 680,
     skillTags: ['TypeScript', 'JavaScript'],
+    resources: [
+      { id: 'cr-ts-1', type: 'course', title: 'TypeScript 官方文档（中文）', url: 'https://www.typescriptlang.org/zh/docs/', source: 'TypeScript 官方', durationMinutes: 300, description: '从基础到进阶的官方权威文档' },
+      { id: 'cr-ts-2', type: 'article', title: 'TypeScript 深入浅出（进阶类型）', url: 'https://www.typescriptlang.org/docs/handbook/2/types-from-extraction.html', source: 'TypeScript Handbook', durationMinutes: 90, description: '高级类型模式专题' },
+    ],
     posts: [],
     isPrivate: false,
     createdAt: daysAgo(150),
@@ -623,6 +644,10 @@ export const seedCircles: Circle[] = [
     tags: ['AI', '机器学习', '大模型'],
     memberCount: 950,
     skillTags: ['AI', 'Python', '机器学习'],
+    resources: [
+      { id: 'cr-ai-1', type: 'course', title: 'Google：机器学习速成课程', url: 'https://developers.google.com/machine-learning/crash-course', source: 'Google Developers', durationMinutes: 600, description: '免费机器学习入门课程，含练习' },
+      { id: 'cr-ai-2', type: 'article', title: 'Python 官方教程', url: 'https://docs.python.org/zh-cn/3/tutorial/', source: 'Python 官方', durationMinutes: 240, description: 'AI 编程语言基础，官方中文教程' },
+    ],
     posts: [],
     isPrivate: false,
     createdAt: daysAgo(120),
@@ -659,6 +684,10 @@ export const seedCircles: Circle[] = [
     tags: ['Node.js', 'Express', '微服务'],
     memberCount: 890,
     skillTags: ['Node.js', 'Express', '数据库'],
+    resources: [
+      { id: 'cr-node-1', type: 'course', title: 'Node.js 官方学习中心', url: 'https://nodejs.org/zh-cn/learn', source: 'Node.js 官方', durationMinutes: 300, description: '从入门到进阶的官方学习路径' },
+      { id: 'cr-node-2', type: 'article', title: 'Express 官方指南', url: 'https://expressjs.com/zh-cn/guide/routing.html', source: 'Express 官方', durationMinutes: 90, description: '路由/中间件/错误处理权威指南' },
+    ],
     posts: [],
     isPrivate: false,
     createdAt: daysAgo(140),

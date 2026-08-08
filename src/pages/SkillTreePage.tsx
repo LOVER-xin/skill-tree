@@ -66,6 +66,8 @@ export function SkillTreePage() {
   const addTree = useAppStore((s) => s.addTree)
   const deleteTree = useAppStore((s) => s.deleteTree)
   const applyLayout = useAppStore((s) => s.applyLayout)
+  const circles = useAppStore((s) => s.circles)
+  const joinedCircleIds = useAppStore((s) => s.joinedCircleIds)
   const recordActivity = useAppStore((s) => s.recordActivity)
   const recordAIAdoption = useAppStore((s) => s.recordAIAdoption)
   const undo = useAppStore((s) => s.undo)
@@ -123,6 +125,8 @@ export function SkillTreePage() {
     pass: boolean
     wrong: { question: string; explanation: string }[]
   } | null>(null)
+  // 步骤展开状态（显示资源）
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null)
   // 拖放层级感知：悬停位置 + 待确认的矛盾放置
   const [dragOverPos, setDragOverPos] = useState<{ x: number; y: number } | null>(null)
   const [pendingDrop, setPendingDrop] = useState<{
@@ -427,11 +431,22 @@ export function SkillTreePage() {
       type: s.type,
       durationMinutes: s.durationMinutes,
       completed: false,
+      quizQuestions: s.quizQuestions, // 修复：AI 生成的测验题目不再丢失
+      resources: s.resources?.map((r) => ({
+        id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        type: r.type,
+        title: r.title,
+        url: r.url,
+        source: r.source,
+        durationMinutes: r.durationMinutes,
+        description: r.description,
+        aiGenerated: true,
+      })),
     }))
     updateSkill(tree.id, selectedSkill.id, {
       teachSteps: [...(selectedSkill.teachSteps ?? []), ...newSteps],
     })
-    recordActivity(`为「${selectedSkill.name}」生成了 ${newSteps.length} 个教学步骤`, 'skill')
+    recordActivity(`为「${selectedSkill.name}」生成了 ${newSteps.length} 个教学步骤（含学习资源）`, 'skill')
     setTeachSuggestions([])
   }
 
@@ -1129,52 +1144,150 @@ export function SkillTreePage() {
 
                     {selectedSkill.teachSteps && selectedSkill.teachSteps.length > 0 ? (
                       <div className="space-y-1.5">
-                        {selectedSkill.teachSteps.map((step, idx) => (
-                          <div
-                            key={step.id}
-                            className={`group flex items-start p-2 rounded-lg border transition-colors ${
-                              step.completed
-                                ? 'bg-green-50 border-green-200'
-                                : 'bg-gray-50 border-gray-100 hover:border-gray-200'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={!!step.completed}
-                              onChange={() => toggleTeachStep(step.id)}
-                              className="mt-0.5 mr-2 rounded cursor-pointer"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center">
-                                <span className="text-[10px] text-gray-400 mr-1.5">{idx + 1}</span>
-                                <span className={`text-[10px] px-1 rounded ${STEP_TYPE_META[step.type].color}`}>
-                                  {STEP_TYPE_META[step.type].label}
-                                </span>
-                                <span className={`text-xs font-medium ml-1.5 ${step.completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                                  {step.title}
-                                </span>
-                                <span className="text-[10px] text-gray-400 ml-auto">{step.durationMinutes}分钟</span>
+                        {selectedSkill.teachSteps.map((step, idx) => {
+                          const expanded = expandedStepId === step.id
+                          return (
+                            <div
+                              key={step.id}
+                              className={`group p-2 rounded-lg border transition-colors ${
+                                step.completed
+                                  ? 'bg-green-50 border-green-200'
+                                  : expanded
+                                  ? 'bg-white border-indigo-200 shadow-sm'
+                                  : 'bg-gray-50 border-gray-100 hover:border-gray-200'
+                              }`}
+                            >
+                              <div className="flex items-start cursor-pointer" onClick={() => setExpandedStepId(expanded ? null : step.id)}>
+                                <input
+                                  type="checkbox"
+                                  checked={!!step.completed}
+                                  onChange={(e) => {
+                                    e.stopPropagation()
+                                    toggleTeachStep(step.id)
+                                  }}
+                                  className="mt-0.5 mr-2 rounded cursor-pointer"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center">
+                                    <span className="text-[10px] text-gray-400 mr-1.5">{idx + 1}</span>
+                                    <span className={`text-[10px] px-1 rounded ${STEP_TYPE_META[step.type].color}`}>
+                                      {STEP_TYPE_META[step.type].label}
+                                    </span>
+                                    <span className={`text-xs font-medium ml-1.5 ${step.completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                      {step.title}
+                                    </span>
+                                    <span className="text-[10px] text-gray-400 ml-auto">
+                                      {step.durationMinutes}分钟
+                                      {step.resources && step.resources.length > 0 && (
+                                        <span className="ml-1 text-indigo-400">📚{step.resources.length}</span>
+                                      )}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{step.description}</p>
+                                  {step.type === 'quiz' && step.quizQuestions && !step.completed && (
+                                    <p className="text-[10px] text-yellow-600 mt-0.5">🎯 答题全部正确才可完成</p>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    removeTeachStep(step.id)
+                                  }}
+                                  title="删除步骤"
+                                  className="ml-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
-                              <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{step.description}</p>
-                              {step.type === 'quiz' && step.quizQuestions && !step.completed && (
-                                <p className="text-[10px] text-yellow-600 mt-0.5">🎯 答题全部正确才可完成</p>
+
+                              {/* 展开：学习资源（课程/文章/视频） */}
+                              {expanded && (
+                                <div className="mt-2 pt-2 border-t border-gray-100 space-y-1.5">
+                                  {(step.resources ?? []).length > 0 ? (
+                                    step.resources!.map((r) => (
+                                      <a
+                                        key={r.id}
+                                        href={r.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block p-2 rounded-lg bg-indigo-50/60 hover:bg-indigo-50 border border-indigo-100 transition-colors"
+                                      >
+                                        <div className="flex items-center text-[11px] font-medium text-gray-800">
+                                          <span className="mr-1">
+                                            {r.type === 'course' ? '🎓' : r.type === 'video' ? '🎬' : '📄'}
+                                          </span>
+                                          <span className="flex-1 truncate">{r.title}</span>
+                                          {r.aiGenerated && (
+                                            <span className="text-[9px] px-1 rounded bg-purple-100 text-purple-600 ml-1">AI推荐</span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center text-[10px] text-gray-500 mt-0.5">
+                                          <span className="mr-2">{r.source}</span>
+                                          {r.durationMinutes && <span>约{r.durationMinutes}分钟</span>}
+                                          <span className="ml-auto text-indigo-500">打开 →</span>
+                                        </div>
+                                        {r.description && (
+                                          <p className="text-[10px] text-gray-500 mt-0.5">{r.description}</p>
+                                        )}
+                                      </a>
+                                    ))
+                                  ) : (
+                                    <p className="text-[10px] text-gray-400">该步骤暂无推荐资源</p>
+                                  )}
+                                </div>
                               )}
                             </div>
-                            <button
-                              onClick={() => removeTeachStep(step.id)}
-                              title="删除步骤"
-                              className="ml-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     ) : (
                       <p className="text-xs text-gray-400 text-center py-3">
                         还没有教学步骤，点 ✨ 让 AI 设计学习路径
                       </p>
                     )}
+
+                    {/* 相关圈子资源：已加入圈子的资源库（按技能标签匹配） */}
+                    {(() => {
+                      const joined = circles.filter((c) => joinedCircleIds.includes(c.id))
+                      const matched = joined
+                        .filter((c) =>
+                          (c.skillTags ?? []).some((t) => (selectedSkill.tags ?? []).includes(t))
+                        )
+                        .flatMap((c) =>
+                          (c.resources ?? []).map((r) => ({ ...r, circleName: c.name }))
+                        )
+                        .slice(0, 4)
+                      if (matched.length === 0) return null
+                      return (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <p className="text-[11px] font-medium text-gray-500 mb-1.5">
+                            👥 已加入圈子的相关资源
+                          </p>
+                          <div className="space-y-1.5">
+                            {matched.map((r) => (
+                              <a
+                                key={r.id}
+                                href={r.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block p-2 rounded-lg bg-purple-50/60 hover:bg-purple-50 border border-purple-100 transition-colors"
+                              >
+                                <div className="flex items-center text-[11px] font-medium text-gray-800">
+                                  <span className="mr-1">
+                                    {r.type === 'course' ? '🎓' : r.type === 'video' ? '🎬' : '📄'}
+                                  </span>
+                                  <span className="flex-1 truncate">{r.title}</span>
+                                </div>
+                                <div className="flex items-center text-[10px] text-gray-500 mt-0.5">
+                                  <span className="text-purple-500">来自圈子「{r.circleName}」</span>
+                                  <span className="ml-auto text-purple-500">打开 →</span>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               ) : (
