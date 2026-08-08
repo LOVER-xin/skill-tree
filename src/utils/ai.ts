@@ -422,3 +422,117 @@ export async function testAIConnection(cfg: AIConfig): Promise<{ ok: boolean; me
     return { ok: false, message: `无法连接 AI 服务（${cfg.baseUrl}）：${(e as Error).message}` }
   }
 }
+
+/* ==================== AI 私教（Matt teach 教学法） ==================== */
+
+export interface AIPlanTopic {
+  title: string
+  objective: string // 本课要掌握什么（可检验的目标）
+  why: string // 为什么现在学这个（关联动机/前置）
+}
+
+export interface AILearningPlan {
+  mission: string // 用户的学习动机（MISSION）
+  topics: AIPlanTopic[]
+}
+
+function isLearningPlan(data: unknown): data is AILearningPlan {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    typeof (data as AILearningPlan).mission === 'string' &&
+    Array.isArray((data as AILearningPlan).topics) &&
+    (data as AILearningPlan).topics.length >= 2 &&
+    (data as AILearningPlan).topics.every(
+      (t) =>
+        typeof t === 'object' &&
+        t !== null &&
+        typeof t.title === 'string' &&
+        typeof t.objective === 'string' &&
+        typeof t.why === 'string'
+    )
+  )
+}
+
+/**
+ * 创建学习计划：基于技能与用户动机（MISSION），按「最近发展区」顺序拆分 3-5 课
+ */
+export async function aiCreateLearningPlan(
+  skill: { name: string; description: string; category: string; prerequisites: string[]; status: string },
+  mission: string
+): Promise<AILearningPlan> {
+  const system =
+    '你是遵循认知科学的一对一私教（参考 Matt Pocock 教学法）。为用户创建学习计划：' +
+    '1. 学习必须围绕用户的动机（mission）展开，每课都服务于这个动机\n' +
+    '2. 按「最近发展区」原则拆分 3-5 课：从用户当前水平出发，每课挑战刚好够，一课只教一个紧凑主题，一课给一个可感知的胜利\n' +
+    '3. 课程顺序要考虑技能的前置依赖，先打基础再进阶\n' +
+    '4. 每课必须有可检验的 objective（学完能做什么）\n' +
+    '返回 JSON：{"mission":"复述用户动机","topics":[{"title":"课标题","objective":"学完能做什么（可检验）","why":"为什么现在学这个（关联动机或前置）"}]}'
+  const userPrompt = `技能：${skill.name}（${skill.description}，分类：${skill.category}）\n前置技能：${skill.prerequisites.join('、') || '无'}（状态：${skill.status}）\n用户动机：${mission || '想系统掌握这个技能'}`
+  return aiJson<AILearningPlan>(system, userPrompt, isLearningPlan)
+}
+
+export interface AITeachQuiz {
+  question: string
+  options: string[]
+  answerIndex: number
+  explanation: string
+}
+
+export interface AILesson {
+  title: string
+  concept: string // 知识讲解（简明，只讲本课所需）
+  tip?: string // 常见误区/小技巧
+  quiz: AITeachQuiz[]
+  resources: { title: string; url: string; source: string; type: 'course' | 'article' | 'video' }[]
+}
+
+function isLesson(data: unknown): data is AILesson {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    typeof (data as AILesson).title === 'string' &&
+    typeof (data as AILesson).concept === 'string' &&
+    Array.isArray((data as AILesson).quiz) &&
+    (data as AILesson).quiz.length >= 1 &&
+    (data as AILesson).quiz.every(
+      (q) =>
+        typeof q.question === 'string' &&
+        Array.isArray(q.options) &&
+        q.options.length >= 2 &&
+        typeof q.answerIndex === 'number' &&
+        q.answerIndex >= 0 &&
+        q.answerIndex < q.options.length &&
+        typeof q.explanation === 'string'
+    ) &&
+    Array.isArray((data as AILesson).resources) &&
+    (data as AILesson).resources.length >= 1 &&
+    (data as AILesson).resources.every(
+      (r) =>
+        ['course', 'article', 'video'].includes(r.type) &&
+        typeof r.title === 'string' &&
+        typeof r.url === 'string' &&
+        r.url.startsWith('http')
+    )
+  )
+}
+
+/**
+ * 教授一课：知识讲解（引用真实资源）+ 测验反馈环（合意困难：提取练习）
+ */
+export async function aiTeachLesson(
+  skill: { name: string; description: string },
+  topic: AIPlanTopic,
+  mission: string,
+  completedTitles: string[]
+): Promise<AILesson> {
+  const system =
+    '你是一对一私教。为用户讲授一课（参考 Matt Pocock 教学法）：\n' +
+    '1. 只讲本课目标所需的知识（知识获取阶段，难度是敌人），讲解简明、直接、口语化\n' +
+    '2. 讲完知识立即用 2-3 道小测验做「提取练习」（从记忆中回想，而不是再读一遍）——这是建立长期记忆的关键\n' +
+    '3. 测验选项长度要相近（不给格式线索），每题附解析\n' +
+    '4. 引用 1-2 个真实存在的权威资源（MDN、JavaScript.info、freeCodeCamp、官方文档、知名教程站），禁止编造 URL\n' +
+    '返回 JSON：{"title":"课标题","concept":"知识讲解（300-500字，含代码示例用反引号）","tip":"常见误区或小技巧","quiz":[{"question":"题目","options":["选项A","选项B","选项C","选项D"],"answerIndex":0,"explanation":"解析"}],"resources":[{"title":"标题","url":"真实URL","source":"来源","type":"course|article|video"}]}'
+  const userPrompt = `技能：${skill.name}（${skill.description}）\n当前课程：${topic.title}\n本课目标：${topic.objective}\n学习动机：${mission}\n已完成课程：${completedTitles.join('、') || '（第一课）'}`
+  return aiJson<AILesson>(system, userPrompt, isLesson)
+}

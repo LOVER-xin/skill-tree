@@ -6,6 +6,7 @@ import { TasksPage } from './pages/TasksPage'
 import { CirclesPage } from './pages/CirclesPage'
 import { NotesPage } from './pages/NotesPage'
 import { ProfilePage } from './pages/ProfilePage'
+import { TeachPage } from './pages/TeachPage'
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <main className="pt-16">
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/teach" element={<TeachPage />} />
             <Route path="/skill-tree" element={<SkillTreePage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/circles" element={<CirclesPage />} />

@@ -9,6 +9,7 @@ import {
   User,
   Trophy,
   Zap,
+  GraduationCap,
 } from 'lucide-react'
 import { useAppStore, getLevel } from '../store'
 
@@ -22,6 +23,7 @@ export function Navigation() {
 
   const navItems = [
     { path: '/', icon: Home, label: '首页' },
+    { path: '/teach', icon: GraduationCap, label: 'AI私教' },
     { path: '/skill-tree', icon: TreePine, label: '技能树' },
     { path: '/tasks', icon: CheckSquare, label: '任务' },
     { path: '/circles', icon: Users, label: '圈子' },
