@@ -103,7 +103,7 @@ interface AppState extends Snapshot {
 
   // 内部
   addXp: (amount: number, reason?: string) => void
-  progressSkillXp: (skillId: string) => void
+  progressSkillXp: (skillId: string, delta?: number) => void
   recordAIAdoption: (kind: 'skill' | 'task' | 'circle') => void
   checkAchievements: () => void
   recordActivity: (text: string, type: ActivityItem['type']) => void
@@ -207,27 +207,32 @@ export const useAppStore = create<AppState>()(
         },
 
         startSkill: (skillId) => {
-          const { trees, activeTreeId } = get()
-          const tree = trees.find((t) => t.id === activeTreeId)
-          const skill = tree?.skills.find((s) => s.id === skillId)
-          if (!skill || skill.status === SkillStatus.LOCKED) return
-          if (skill.status === SkillStatus.AVAILABLE) {
-            get().updateSkill(activeTreeId, skillId, { status: SkillStatus.LEARNING })
-            get().recordActivity(`开始了「${skill.name}」的学习`, 'skill')
+          const { trees } = get()
+          // 全树查找（跨树技能也能开始学习）
+          for (const tree of trees) {
+            const skill = tree.skills.find((s) => s.id === skillId)
+            if (!skill || skill.status === SkillStatus.LOCKED) continue
+            if (skill.status === SkillStatus.AVAILABLE) {
+              get().updateSkill(tree.id, skillId, { status: SkillStatus.LEARNING })
+              get().recordActivity(`开始了「${skill.name}」的学习`, 'skill')
+            }
+            return
           }
         },
 
         completeSkill: (skillId) => {
-          const { trees, activeTreeId } = get()
-          const tree = trees.find((t) => t.id === activeTreeId)
-          const skill = tree?.skills.find((s) => s.id === skillId)
-          if (!skill || skill.status === SkillStatus.COMPLETED) return
-          get().updateSkill(activeTreeId, skillId, { status: SkillStatus.COMPLETED, xp: skill.maxXp })
-          get().addXp(SKILL_XP, `掌握技能「${skill.name}」`)
-          get().recordActivity(`掌握了「${skill.name}」技能`, 'skill')
-          // 关联该技能的任务如果没有开始，标记为进行中
-          const related = get().tasks.filter((t) => t.skillId === skillId && t.status === 'todo')
-          related.forEach((t) => get().updateTask(t.id, { status: 'in-progress' }))
+          const { trees } = get()
+          for (const tree of trees) {
+            const skill = tree.skills.find((s) => s.id === skillId)
+            if (!skill || skill.status === SkillStatus.COMPLETED) continue
+            get().updateSkill(tree.id, skillId, { status: SkillStatus.COMPLETED, xp: skill.maxXp })
+            get().addXp(SKILL_XP, `掌握技能「${skill.name}」`)
+            get().recordActivity(`掌握了「${skill.name}」技能`, 'skill')
+            // 关联该技能的任务如果没有开始，标记为进行中
+            const related = get().tasks.filter((t) => t.skillId === skillId && t.status === 'todo')
+            related.forEach((t) => get().updateTask(t.id, { status: 'in-progress' }))
+            return
+          }
         },
 
         addSkill: (treeId, skill) => {
@@ -370,17 +375,23 @@ export const useAppStore = create<AppState>()(
           )
           const allDone = subtasks.length > 0 && subtasks.every((st) => st.completed)
           const wasCompleted = task.status === 'completed'
+          const taskXp = TASK_XP[task.priority] ?? 50
           const updates: Partial<Task> = { subtasks }
           if (allDone && !wasCompleted) {
+            // 完成结算
             updates.status = 'completed'
             updates.actualMinutes = task.estimatedMinutes
-            get().addXp(TASK_XP[task.priority] ?? 50, `完成任务「${task.title}」`)
+            get().addXp(taskXp, `完成任务「${task.title}」`)
             get().recordActivity(`完成了「${task.title}」任务`, 'task')
-            get().bumpDailyProgress({ tasksCompleted: 1, xpGained: TASK_XP[task.priority] ?? 50 })
+            get().bumpDailyProgress({ tasksCompleted: 1, xpGained: taskXp })
             // 数据闭环：任务完成 → 推进关联技能 XP
-            if (task.skillId) get().progressSkillXp(task.skillId)
+            if (task.skillId) get().progressSkillXp(task.skillId, 1)
           } else if (!allDone && wasCompleted) {
+            // 对称回退：取消完成时扣回 XP 与统计（防重复刷取）
             updates.status = 'in-progress'
+            get().addXp(-taskXp)
+            get().bumpDailyProgress({ tasksCompleted: -1, xpGained: -taskXp })
+            if (task.skillId) get().progressSkillXp(task.skillId, -1)
           }
           get().updateTask(taskId, updates)
         },
@@ -389,12 +400,20 @@ export const useAppStore = create<AppState>()(
           pushHistory()
           const task = get().tasks.find((t) => t.id === taskId)
           if (!task) return
+          const wasCompleted = task.status === 'completed'
+          const taskXp = TASK_XP[task.priority] ?? 50
           const updates: Partial<Task> = { status }
-          if (status === 'completed' && task.status !== 'completed') {
+          if (status === 'completed' && !wasCompleted) {
             updates.subtasks = task.subtasks.map((st) => ({ ...st, completed: true }))
-            get().addXp(TASK_XP[task.priority] ?? 50, `完成任务「${task.title}」`)
+            get().addXp(taskXp, `完成任务「${task.title}」`)
             get().recordActivity(`完成了「${task.title}」任务`, 'task')
-            if (task.skillId) get().progressSkillXp(task.skillId)
+            get().bumpDailyProgress({ tasksCompleted: 1, xpGained: taskXp })
+            if (task.skillId) get().progressSkillXp(task.skillId, 1)
+          } else if (status !== 'completed' && wasCompleted) {
+            // 对称回退（与 toggleSubtask 口径一致）
+            get().addXp(-taskXp)
+            get().bumpDailyProgress({ tasksCompleted: -1, xpGained: -taskXp })
+            if (task.skillId) get().progressSkillXp(task.skillId, -1)
           }
           get().updateTask(taskId, updates)
         },
@@ -519,19 +538,23 @@ export const useAppStore = create<AppState>()(
           get().checkAchievements()
         },
 
-        /** 任务完成 → 关联技能 XP 推进（数据闭环） */
-        progressSkillXp: (skillId: string) => {
-          const { trees, activeTreeId } = get()
-          const tree = trees.find((t) => t.id === activeTreeId)
-          const skill = tree?.skills.find((s) => s.id === skillId)
-          if (!skill || skill.status === SkillStatus.COMPLETED) return
-          const gained = Math.round(skill.maxXp * TASK_TO_SKILL_XP_RATIO)
-          const newXp = Math.min(skill.maxXp, skill.xp + gained)
-          get().updateSkill(activeTreeId, skillId, { xp: newXp })
-          get().bumpDailyProgress({ skillsProgressed: 1 })
+        /** 任务完成 → 关联技能 XP 推进（全树查找，跨树任务关联修复）；delta 支持回退 */
+        progressSkillXp: (skillId: string, delta = 1) => {
+          const { trees } = get()
+          for (const tree of trees) {
+            const skill = tree.skills.find((s) => s.id === skillId)
+            if (!skill || skill.status === SkillStatus.COMPLETED) continue
+            const gained = Math.round(skill.maxXp * TASK_TO_SKILL_XP_RATIO) * delta
+            const newXp = Math.max(0, Math.min(skill.maxXp, skill.xp + gained))
+            get().updateSkill(tree.id, skillId, { xp: newXp })
+            if (delta > 0) get().bumpDailyProgress({ skillsProgressed: 1 })
+            else get().bumpDailyProgress({ skillsProgressed: -1 })
+            return
+          }
         },
 
         recordAIAdoption: (kind: 'skill' | 'task' | 'circle') => {
+          pushHistory()
           set((state) => ({ aiAdoptions: state.aiAdoptions + 1 }))
           get().recordActivity(`采纳了 AI 推荐的${kind === 'skill' ? '技能' : kind === 'task' ? '任务' : '圈子'}`, 'achievement')
           get().checkAchievements()
@@ -592,21 +615,77 @@ export const useAppStore = create<AppState>()(
             const weekly = [...state.gameStats.weeklyProgress]
             const today = new Date()
             today.setHours(0, 0, 0, 0)
+
+            // H2 修复：当天不在 weeklyProgress 时插入新条目并裁剪到 7 天（跨天统计不停摆）
             const idx = weekly.findIndex((d) => {
               const date = new Date(d.date)
               date.setHours(0, 0, 0, 0)
               return date.getTime() === today.getTime()
             })
-            if (idx === -1) return { gameStats: state.gameStats }
-            weekly[idx] = { ...weekly[idx], ...patch }
+            let nextWeekly = weekly
+            if (idx === -1) {
+              nextWeekly = [
+                {
+                  date: today,
+                  learningMinutes: 0,
+                  tasksCompleted: 0,
+                  skillsProgressed: 0,
+                  notesCreated: 0,
+                  xpGained: 0,
+                },
+                ...weekly,
+              ].slice(0, 7)
+              nextWeekly[0] = { ...nextWeekly[0], ...patch }
+            } else {
+              nextWeekly = weekly.map((d, i) => (i === idx ? { ...d, ...patch } : d))
+            }
+
+            // H1 修复：连续学习天数 —— 今天首次学习活动时更新（昨天活跃 +1，断档归 1）
+            const todayEntry = idx !== -1 ? weekly[idx] : null
+            const alreadyActiveToday = todayEntry
+              ? todayEntry.learningMinutes > 0 ||
+                todayEntry.tasksCompleted > 0 ||
+                todayEntry.skillsProgressed > 0 ||
+                todayEntry.notesCreated > 0 ||
+                todayEntry.xpGained > 0
+              : false
+            const hasNewActivity =
+              (patch.tasksCompleted ?? 0) !== 0 ||
+              (patch.notesCreated ?? 0) !== 0 ||
+              (patch.skillsProgressed ?? 0) !== 0 ||
+              (patch.xpGained ?? 0) !== 0
+            let currentStreak = state.gameStats.currentStreak
+            if (hasNewActivity && !alreadyActiveToday) {
+              const yesterday = new Date(Date.now() - 86400000)
+              yesterday.setHours(0, 0, 0, 0)
+              const yIdx = nextWeekly.findIndex((d) => {
+                const date = new Date(d.date)
+                date.setHours(0, 0, 0, 0)
+                return date.getTime() === yesterday.getTime()
+              })
+              const yesterdayActive =
+                yIdx !== -1 &&
+                (nextWeekly[yIdx].learningMinutes > 0 ||
+                  nextWeekly[yIdx].tasksCompleted > 0 ||
+                  nextWeekly[yIdx].notesCreated > 0 ||
+                  nextWeekly[yIdx].xpGained > 0)
+              currentStreak = yesterdayActive ? currentStreak + 1 : 1
+            }
+
             return {
               gameStats: {
                 ...state.gameStats,
-                weeklyProgress: weekly,
-                totalTasksCompleted:
-                  state.gameStats.totalTasksCompleted + (patch.tasksCompleted ?? 0),
-                totalNotesCreated:
-                  state.gameStats.totalNotesCreated + (patch.notesCreated ?? 0),
+                weeklyProgress: nextWeekly,
+                currentStreak,
+                longestStreak: Math.max(state.gameStats.longestStreak, currentStreak),
+                totalTasksCompleted: Math.max(
+                  0,
+                  state.gameStats.totalTasksCompleted + (patch.tasksCompleted ?? 0)
+                ),
+                totalNotesCreated: Math.max(
+                  0,
+                  state.gameStats.totalNotesCreated + (patch.notesCreated ?? 0)
+                ),
               },
             }
           }),

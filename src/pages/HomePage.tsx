@@ -27,6 +27,7 @@ export function HomePage() {
   const user = useAppStore((s) => s.user)
   const tasks = useAppStore((s) => s.tasks)
   const toggleSubtask = useAppStore((s) => s.toggleSubtask)
+  const setTaskStatus = useAppStore((s) => s.setTaskStatus)
   const gameStats = useAppStore((s) => s.gameStats)
   const allSkills = useAllSkills()
   const tree = useAppStore((s) => s.trees.find((t) => t.id === s.activeTreeId))
@@ -310,10 +311,14 @@ export function HomePage() {
                           className="mr-3 rounded"
                           checked={task.status === 'completed'}
                           onChange={() => {
-                            if (task.status !== 'completed' && total > 0) {
+                            if (task.status === 'completed') return
+                            if (total > 0) {
                               // 勾选第一个未完成的子任务作为开始
                               const next = task.subtasks.find((st) => !st.completed)
                               if (next) toggleSubtask(task.id, next.id)
+                            } else {
+                              // 无子任务：直接完成（L3 修复）
+                              setTaskStatus(task.id, 'completed')
                             }
                           }}
                         />

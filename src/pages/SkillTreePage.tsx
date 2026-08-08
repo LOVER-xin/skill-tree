@@ -752,6 +752,15 @@ export function SkillTreePage() {
               onClick={() => {
                 setActiveTree(t.id)
                 setSelectedSkillId(null)
+                // 切换树时清理教学/测验/审查等状态（防残留）
+                setTeachSuggestions([])
+                setTeachError(null)
+                setQuizStep(null)
+                setQuizResult(null)
+                setAuditIssues([])
+                setAuditError(null)
+                setPendingDrop(null)
+                setDragOverPos(null)
               }}
               className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
                 activeTreeId === t.id
@@ -863,6 +872,12 @@ export function SkillTreePage() {
                         onClick={() => {
                           if (draggingId === skill.id) return
                           setSelectedSkillId(skill.id)
+                          // 切换技能时清理教学建议/测验等状态（防残留）
+                          setTeachSuggestions([])
+                          setTeachError(null)
+                          setQuizStep(null)
+                          setQuizResult(null)
+                          setShowAddStep(false)
                         }}
                       >
                         <div className="flex items-center justify-between mb-2">
