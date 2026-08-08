@@ -626,6 +626,26 @@ export const useAppStore = create<AppState>()(
         void future
         return rest
       },
+      // 兼容升级：把 seed 中的新增字段（如 teachSteps）合并进已持久化的旧数据，不丢用户进度
+      merge: (persisted, current) => {
+        const merged = { ...current, ...(persisted as Partial<AppState>) }
+        if (merged.trees) {
+          const seedSkillMap = new Map(
+            seedTrees.flatMap((t) => t.skills).map((s) => [s.id, s])
+          )
+          merged.trees = merged.trees.map((t) => ({
+            ...t,
+            skills: t.skills.map((s) => {
+              if (s.teachSteps && s.teachSteps.length > 0) return s
+              const seedSkill = seedSkillMap.get(s.id)
+              return seedSkill?.teachSteps?.length
+                ? { ...s, teachSteps: seedSkill.teachSteps }
+                : s
+            }),
+          }))
+        }
+        return merged
+      },
     }
   )
 )
