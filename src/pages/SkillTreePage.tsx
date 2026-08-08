@@ -235,7 +235,9 @@ export function SkillTreePage() {
 
   const adoptAIRecommendations = () => {
     if (!tree) return
-    aiSkills.forEach((s) => {
+    const existing = new Set(skills.map((s) => s.name))
+    const fresh = aiSkills.filter((s) => !existing.has(s.name))
+    fresh.forEach((s) => {
       addSkill(tree.id, {
         name: s.name,
         description: s.description,
@@ -251,12 +253,18 @@ export function SkillTreePage() {
     recordAIAdoption('skill')
     setShowRecommendModal(false)
     setAiSkills([])
-    recordActivity(`采纳了 AI 推荐的 ${aiSkills.length} 个技能`, 'skill')
+    recordActivity(
+      fresh.length > 0
+        ? `采纳了 AI 推荐的 ${fresh.length} 个技能${aiSkills.length > fresh.length ? `（跳过 ${aiSkills.length - fresh.length} 个与已有技能重复的）` : ''}`
+        : 'AI 推荐全部与已有技能重复，未添加',
+      'skill'
+    )
   }
 
   const adoptBranchSuggestions = () => {
     if (!tree || !selectedSkill) return
-    const picked = branchSuggestions.filter((_, i) => branchChecked[i])
+    const existing = new Set(skills.map((s) => s.name))
+    const picked = branchSuggestions.filter((_, i) => branchChecked[i] && !existing.has(_.name))
     picked.forEach((s) => {
       addSkill(tree.id, {
         name: s.name,

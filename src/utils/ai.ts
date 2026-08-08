@@ -221,6 +221,7 @@ export async function aiRecommendSkills(
   const system =
     '你是技能成长规划师。根据用户的技能树状态，推荐接下来最值得学习的 3 个技能。' +
     '只推荐用户尚未掌握的技能；优先推荐前置已完成的技能；理由要具体（结合前置关系、市场需求、学习路径）。' +
+    '重要：不得推荐技能树中已存在的技能（名称完全相同或高度相似的都不行），只推荐全新的技能方向。' +
     '返回 JSON 数组，每项格式：{"name":技能名,"description":简介,"category":分类,"estimatedHours":预估小时数,"tags":[标签],"reason":推荐理由,"learningPath":["学习路径"]}'
   const userPrompt = `用户：${user?.name ?? '学习者'}（总经验 ${user?.totalXp ?? 0}）\n当前技能树「${tree?.name ?? ''}」节点状态：${treeSummary}\n请推荐 3 个技能。`
   return aiJson<AISkillSuggestion[]>(system, userPrompt, isSkillSuggestionList)
@@ -234,7 +235,7 @@ export async function aiGenerateSkillBranches(
   const siblings = tree?.skills.filter((s) => s.id !== skill.id).map((s) => s.name).join('、') ?? '（无）'
   const system =
     '你是技能树架构师。为指定的技能节点设计 3-4 个合理的子技能分支（进阶方向），用于扩展技能树。' +
-    '子技能必须与父技能直接相关且是真实的进阶方向；不要重复已有技能。' +
+    '子技能必须与父技能直接相关且是真实的进阶方向；不要重复已有技能（包括技能树中其他节点和父技能本身）。' +
     '返回 JSON 数组，每项格式：{"name":子技能名,"description":简介,"category":分类,"estimatedHours":预估小时数,"tags":[标签],"reason":"为什么这个分支值得学","learningPath":["父技能名","子技能名","更进阶方向"]}'
   const userPrompt = `技能树「${tree?.name ?? ''}」已有技能：${siblings}\n请为技能「${skill.name}」（${skill.description}）设计子技能分支。`
   return aiJson<AISkillSuggestion[]>(system, userPrompt, isSkillSuggestionList)
