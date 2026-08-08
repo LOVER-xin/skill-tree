@@ -39,6 +39,30 @@ export interface SkillNode {
     reason: string         // 推荐理由
     learningPath: string[] // 建议学习路径
   }
+  teachSteps?: TeachStep[] // 教学步骤（深度学习路径，逐步递进）
+}
+
+/** 教学步骤类型：concept 概念 → practice 实践 → project 项目 → quiz 测验 */
+export type TeachStepType = 'concept' | 'practice' | 'project' | 'quiz'
+
+/** 测验题目 */
+export interface TeachQuizQuestion {
+  question: string
+  options: string[]
+  answerIndex: number // 正确答案下标
+  explanation: string // 答错时的解析
+}
+
+/** 教学步骤：一个技能内部的深度学习单元（从浅入深） */
+export interface TeachStep {
+  id: string
+  title: string
+  description: string
+  type: TeachStepType
+  durationMinutes: number
+  completed?: boolean       // 是否完成
+  completedAt?: Date
+  quizQuestions?: TeachQuizQuestion[] // type=quiz 时的题目（答对全部才可完成）
 }
 
 // 技能树模板

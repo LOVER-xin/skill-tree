@@ -44,6 +44,13 @@ export const seedTrees: SkillTreeTemplate[] = [
         estimatedHours: 20,
         tags: ['HTML', '前端'],
         position: { x: 130, y: 480 },
+        teachSteps: [
+          { id: 'html-s1', title: '认识 HTML 与文档结构', description: '理解 HTML 是什么、文档骨架（doctype/html/head/body）、块级与行内元素的概念', type: 'concept', durationMinutes: 30 },
+          { id: 'html-s2', title: '语义化标签实战', description: '掌握 header/nav/main/article/section/footer 等语义化标签，重构一个页面骨架', type: 'practice', durationMinutes: 45 },
+          { id: 'html-s3', title: '表单与输入控件', description: '表单结构、input 常用类型、label 关联、表单校验属性', type: 'concept', durationMinutes: 40 },
+          { id: 'html-s4', title: '媒体元素与可访问性', description: 'img/video/audio 用法、alt 文本、ARIA 基础、键盘可访问性', type: 'practice', durationMinutes: 40 },
+          { id: 'html-s5', title: '综合实战：语义化博客页', description: '用所学标签独立完成一个含导航/文章/侧栏/表单的完整博客页面，通过 W3C 校验', type: 'project', durationMinutes: 90 },
+        ],
       },
       {
         id: 'fe-css',
@@ -59,6 +66,14 @@ export const seedTrees: SkillTreeTemplate[] = [
         estimatedHours: 30,
         tags: ['CSS', '布局', '前端'],
         position: { x: 400, y: 480 },
+        teachSteps: [
+          { id: 'css-s1', title: '选择器与优先级', description: '类/ID/属性/伪类选择器、层叠与优先级计算、!important 的正确用法', type: 'concept', durationMinutes: 35 },
+          { id: 'css-s2', title: '盒模型与定位', description: 'content/padding/border/margin、box-sizing、position 五种取值与定位上下文', type: 'concept', durationMinutes: 40 },
+          { id: 'css-s3', title: 'Flexbox 布局实战', description: '主轴/交叉轴、justify-content/align-items、flex 简写，实现导航栏与卡片布局', type: 'practice', durationMinutes: 50 },
+          { id: 'css-s4', title: 'Grid 布局实战', description: 'grid-template、fr 单位、gap、区域命名，实现响应式页面骨架', type: 'practice', durationMinutes: 50 },
+          { id: 'css-s5', title: '响应式与动画', description: '媒体查询断点、移动优先策略、transition/animation 基础', type: 'practice', durationMinutes: 45 },
+          { id: 'css-s6', title: '综合实战：响应式落地页', description: '独立完成一个移动优先的响应式产品落地页（Flexbox+Grid+动画）', type: 'project', durationMinutes: 100 },
+        ],
       },
       {
         id: 'fe-js',
@@ -74,6 +89,53 @@ export const seedTrees: SkillTreeTemplate[] = [
         estimatedHours: 60,
         tags: ['JavaScript', 'ES6', '前端'],
         position: { x: 670, y: 480 },
+        teachSteps: [
+          { id: 'js-s1', title: '语法与数据类型', description: '变量声明（var/let/const）、原始类型与引用类型、类型转换陷阱', type: 'concept', durationMinutes: 40 },
+          { id: 'js-s2', title: '函数、作用域与闭包', description: '函数声明/表达式/箭头函数、作用域链、闭包的产生与用途', type: 'concept', durationMinutes: 50 },
+          { id: 'js-s3', title: '数组与对象方法', description: 'map/filter/reduce/find 等高阶方法、解构、展开运算符，完成一组练习', type: 'practice', durationMinutes: 60 },
+          { id: 'js-s4', title: 'DOM 操作与事件', description: 'querySelector、创建/修改节点、事件监听与冒泡/捕获、事件委托', type: 'practice', durationMinutes: 60 },
+          { id: 'js-s5', title: '异步编程：事件循环与 Promise', description: '宏任务/微任务、Promise 链、async/await、错误处理，理解执行顺序', type: 'concept', durationMinutes: 60 },
+          { id: 'js-s6', title: '综合实战：Todo 应用', description: '用原生 JS 实现一个带增删改查/筛选/本地存储的 Todo 应用，检验全部所学', type: 'project', durationMinutes: 120 },
+          {
+            id: 'js-s7',
+            title: 'JavaScript 知识测验',
+            description: '5 道题检验本技能所学（变量/函数/数组方法/事件/异步），全部答对才算完成',
+            type: 'quiz',
+            durationMinutes: 20,
+            quizQuestions: [
+              {
+                question: 'let 与 const 的主要区别是？',
+                options: ['const 声明的变量不能重新赋值', 'let 不能用于块级作用域', 'const 声明的值一定是不可变的', 'let 只能声明数字'],
+                answerIndex: 0,
+                explanation: 'const 声明后不能重新赋值（引用类型内部仍可变）；两者都是块级作用域。',
+              },
+              {
+                question: '以下哪个数组方法会返回新数组？',
+                options: ['push()', 'map()', 'sort()', 'splice()'],
+                answerIndex: 1,
+                explanation: 'map 返回新数组；push/sort/splice 都修改原数组。',
+              },
+              {
+                question: '事件委托利用的是事件的哪个特性？',
+                options: ['事件冒泡', '事件捕获', '事件同步', '事件防抖'],
+                answerIndex: 0,
+                explanation: '事件委托把监听器挂到父元素，利用子元素事件冒泡到父元素来统一处理。',
+              },
+              {
+                question: '下列哪个属于微任务（microtask）？',
+                options: ['setTimeout 回调', 'Promise.then 回调', 'DOM 事件回调', 'requestAnimationFrame'],
+                answerIndex: 1,
+                explanation: 'Promise.then 是微任务，在当前宏任务结束后立即执行；setTimeout 是宏任务。',
+              },
+              {
+                question: '闭包可以让我们实现什么？',
+                options: ['让函数访问其外部作用域的变量', '让变量变成全局变量', '阻止函数执行', '删除外部变量'],
+                answerIndex: 0,
+                explanation: '闭包是函数与其词法作用域的绑定，常用于封装私有状态。',
+              },
+            ],
+          },
+        ],
       },
       {
         id: 'fe-ts',

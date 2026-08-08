@@ -20,6 +20,7 @@ import {
   LayoutGrid,
   AlertTriangle,
   ScanSearch,
+  GraduationCap,
 } from 'lucide-react'
 import { SkillStatus, SkillLevel, SkillNode } from '../types'
 import { useAppStore, useActiveTree } from '../store'
@@ -28,13 +29,16 @@ import { getSkillLevelFromXp } from '../utils'
 import {
   aiRecommendSkills,
   aiGenerateSkillBranches,
+  aiGenerateTeachSteps,
   aiAuditTree,
   hasAIConfig,
   AIError,
   AISkillSuggestion,
   AITreeIssue,
+  AITeachStepSuggestion,
 } from '../utils/ai'
 import { computeTreeLayout, computeDepths, findSkillPosition, NODE_W } from '../utils/layout'
+import { TeachStep, TeachStepType } from '../types'
 
 type RecommendSource = 'local' | 'ai'
 
@@ -100,6 +104,25 @@ export function SkillTreePage() {
   const [auditError, setAuditError] = useState<string | null>(null)
   const [auditIssues, setAuditIssues] = useState<AITreeIssue[]>([])
   const [auditApplied, setAuditApplied] = useState<Record<number, boolean>>({})
+  // 教学步骤状态
+  const [teachLoading, setTeachLoading] = useState(false)
+  const [teachError, setTeachError] = useState<string | null>(null)
+  const [teachSuggestions, setTeachSuggestions] = useState<AITeachStepSuggestion[]>([])
+  const [teachChecked, setTeachChecked] = useState<Record<number, boolean>>({})
+  const [showAddStep, setShowAddStep] = useState(false)
+  const [stepForm, setStepForm] = useState({
+    title: '',
+    description: '',
+    type: 'practice' as TeachStepType,
+    durationMinutes: 30,
+  })
+  // 测验状态（quiz 步骤答对才完成）
+  const [quizStep, setQuizStep] = useState<TeachStep | null>(null)
+  const [quizAnswers, setQuizAnswers] = useState<number[]>([])
+  const [quizResult, setQuizResult] = useState<{
+    pass: boolean
+    wrong: { question: string; explanation: string }[]
+  } | null>(null)
   // 拖放层级感知：悬停位置 + 待确认的矛盾放置
   const [dragOverPos, setDragOverPos] = useState<{ x: number; y: number } | null>(null)
   const [pendingDrop, setPendingDrop] = useState<{
@@ -296,6 +319,144 @@ export function SkillTreePage() {
     }
     setAuditApplied({ ...auditApplied, [index]: true })
     setAuditIssues(auditIssues.filter((_, i) => i !== index))
+  }
+
+  /* ============ 教学步骤（深度学习路径） ============ */
+
+  const STEP_TYPE_META: Record<TeachStepType, { label: string; color: string }> = {
+    concept: { label: '概念', color: 'bg-blue-100 text-blue-700' },
+    practice: { label: '实践', color: 'bg-green-100 text-green-700' },
+    project: { label: '项目', color: 'bg-purple-100 text-purple-700' },
+    quiz: { label: '测验', color: 'bg-yellow-100 text-yellow-700' },
+  }
+
+  /** 勾选/取消教学步骤：完成 +5 XP，取消回退；quiz 步骤需答题全部正确才可完成 */
+  const toggleTeachStep = (stepId: string) => {
+    if (!tree || !selectedSkill) return
+    const step = selectedSkill.teachSteps?.find((s) => s.id === stepId)
+    if (!step) return
+    // quiz 步骤且有题目：先答题，全部答对才完成
+    if (step.type === 'quiz' && step.quizQuestions && step.quizQuestions.length > 0 && !step.completed) {
+      setQuizStep(step)
+      setQuizAnswers(step.quizQuestions.map(() => -1))
+      setQuizResult(null)
+      return
+    }
+    const steps = (selectedSkill.teachSteps ?? []).map((s) =>
+      s.id === stepId
+        ? { ...s, completed: !s.completed, completedAt: !s.completed ? new Date() : undefined }
+        : s
+    )
+    const wasCompleted = step.completed
+    const xpDelta = wasCompleted ? -5 : 5
+    updateSkill(tree.id, selectedSkill.id, {
+      teachSteps: steps,
+      xp: Math.max(0, Math.min(selectedSkill.maxXp, selectedSkill.xp + xpDelta)),
+    })
+    if (!wasCompleted) {
+      const doneCount = steps.filter((s) => s.completed).length
+      if (doneCount === steps.length && steps.length > 0) {
+        recordActivity(`完成了「${selectedSkill.name}」的全部教学步骤，可以标记为已掌握！`, 'skill')
+      }
+    }
+  }
+
+  /** 提交测验答案：全部正确 → 标记完成 +5 XP；有错 → 显示解析可重试 */
+  const submitQuiz = () => {
+    if (!tree || !selectedSkill || !quizStep) return
+    const qs = quizStep.quizQuestions ?? []
+    const wrong = qs
+      .map((q, i) => ({ q, answer: quizAnswers[i] }))
+      .filter(({ q, answer }) => answer !== q.answerIndex)
+    if (wrong.length === 0) {
+      const steps = (selectedSkill.teachSteps ?? []).map((s) =>
+        s.id === quizStep.id ? { ...s, completed: true, completedAt: new Date() } : s
+      )
+      updateSkill(tree.id, selectedSkill.id, {
+        teachSteps: steps,
+        xp: Math.min(selectedSkill.maxXp, selectedSkill.xp + 5),
+      })
+      recordActivity(`通过了「${selectedSkill.name}」的测验「${quizStep.title}」`, 'skill')
+      setQuizStep(null)
+      setQuizResult(null)
+    } else {
+      setQuizResult({
+        pass: false,
+        wrong: wrong.map(({ q }) => ({ question: q.question, explanation: q.explanation })),
+      })
+    }
+  }
+
+  const runTeachGenerate = async () => {
+    if (!selectedSkill) return
+    setTeachError(null)
+    setTeachSuggestions([])
+    if (!hasAIConfig()) {
+      setTeachError('尚未配置 AI 服务：请到「我的 → 设置」填写 API Key')
+      return
+    }
+    setTeachLoading(true)
+    try {
+      const result = await aiGenerateTeachSteps(
+        { name: selectedSkill.name, description: selectedSkill.description, category: selectedSkill.category },
+        selectedSkill.teachSteps ?? []
+      )
+      setTeachSuggestions(result)
+      setTeachChecked(Object.fromEntries(result.map((_, i) => [i, true])))
+    } catch (e) {
+      setTeachError(e instanceof AIError ? e.message : (e as Error).message)
+    } finally {
+      setTeachLoading(false)
+    }
+  }
+
+  const adoptTeachSteps = () => {
+    if (!tree || !selectedSkill) return
+    const existing = new Set((selectedSkill.teachSteps ?? []).map((s) => s.title))
+    const picked = teachSuggestions.filter(
+      (s, i) => teachChecked[i] && !existing.has(s.title)
+    )
+    if (picked.length === 0) {
+      setTeachError('选中的步骤与已有教学步骤重复')
+      return
+    }
+    const newSteps: TeachStep[] = picked.map((s) => ({
+      id: `teach-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: s.title,
+      description: s.description,
+      type: s.type,
+      durationMinutes: s.durationMinutes,
+      completed: false,
+    }))
+    updateSkill(tree.id, selectedSkill.id, {
+      teachSteps: [...(selectedSkill.teachSteps ?? []), ...newSteps],
+    })
+    recordActivity(`为「${selectedSkill.name}」生成了 ${newSteps.length} 个教学步骤`, 'skill')
+    setTeachSuggestions([])
+  }
+
+  const addTeachStep = () => {
+    if (!tree || !selectedSkill || !stepForm.title.trim()) return
+    const newStep: TeachStep = {
+      id: `teach-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: stepForm.title.trim(),
+      description: stepForm.description.trim() || '自定义学习步骤',
+      type: stepForm.type,
+      durationMinutes: stepForm.durationMinutes,
+      completed: false,
+    }
+    updateSkill(tree.id, selectedSkill.id, {
+      teachSteps: [...(selectedSkill.teachSteps ?? []), newStep],
+    })
+    setStepForm({ title: '', description: '', type: 'practice', durationMinutes: 30 })
+    setShowAddStep(false)
+  }
+
+  const removeTeachStep = (stepId: string) => {
+    if (!tree || !selectedSkill) return
+    updateSkill(tree.id, selectedSkill.id, {
+      teachSteps: (selectedSkill.teachSteps ?? []).filter((s) => s.id !== stepId),
+    })
   }
 
   const getStatusIcon = (status: SkillStatus) => {
@@ -882,6 +1043,124 @@ export function SkillTreePage() {
                       设为学习中
                     </button>
                   </div>
+
+                  {/* 教学步骤（teach skills）：深度学习路径 */}
+                  <div className="mt-6 pt-4 border-t">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-gray-900 flex items-center">
+                        <GraduationCap className="w-4 h-4 mr-1.5 text-indigo-600" />
+                        教学步骤
+                        <span className="ml-2 text-xs font-normal text-gray-500">
+                          {selectedSkill.teachSteps?.filter((s) => s.completed).length ?? 0}/{selectedSkill.teachSteps?.length ?? 0}
+                        </span>
+                      </h3>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={runTeachGenerate}
+                          title="AI 生成教学步骤"
+                          className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setShowAddStep(true)}
+                          title="添加教学步骤"
+                          className="p-1.5 rounded text-gray-500 hover:bg-gray-100 transition-colors"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {teachLoading && (
+                      <div className="flex items-center text-xs text-gray-500 mb-2">
+                        <div className="animate-spin w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full mr-2"></div>
+                        AI 正在设计学习路径...
+                      </div>
+                    )}
+                    {teachError && (
+                      <p className="text-xs text-red-600 bg-red-50 rounded p-2 mb-2">{teachError}</p>
+                    )}
+                    {teachSuggestions.length > 0 && (
+                      <div className="border border-indigo-200 rounded-lg p-2 mb-2 bg-indigo-50/50">
+                        <p className="text-xs font-medium text-indigo-700 mb-1">AI 建议的教学步骤（勾选加入）：</p>
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                          {teachSuggestions.map((s, i) => (
+                            <label key={i} className="flex items-start text-xs cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={!!teachChecked[i]}
+                                onChange={() => setTeachChecked({ ...teachChecked, [i]: !teachChecked[i] })}
+                                className="mt-0.5 mr-1.5 rounded"
+                              />
+                              <span className="flex-1">
+                                <span className="font-medium text-gray-800">{s.title}</span>
+                                <span className={`ml-1 px-1 rounded text-[10px] ${STEP_TYPE_META[s.type].color}`}>
+                                  {STEP_TYPE_META[s.type].label}
+                                </span>
+                                <span className="text-gray-400"> · {s.durationMinutes}分钟</span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                        <button
+                          onClick={adoptTeachSteps}
+                          className="w-full mt-2 bg-indigo-600 text-white py-1 rounded text-xs font-medium hover:bg-indigo-700 transition-colors"
+                        >
+                          加入教学步骤
+                        </button>
+                      </div>
+                    )}
+
+                    {selectedSkill.teachSteps && selectedSkill.teachSteps.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {selectedSkill.teachSteps.map((step, idx) => (
+                          <div
+                            key={step.id}
+                            className={`group flex items-start p-2 rounded-lg border transition-colors ${
+                              step.completed
+                                ? 'bg-green-50 border-green-200'
+                                : 'bg-gray-50 border-gray-100 hover:border-gray-200'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!!step.completed}
+                              onChange={() => toggleTeachStep(step.id)}
+                              className="mt-0.5 mr-2 rounded cursor-pointer"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center">
+                                <span className="text-[10px] text-gray-400 mr-1.5">{idx + 1}</span>
+                                <span className={`text-[10px] px-1 rounded ${STEP_TYPE_META[step.type].color}`}>
+                                  {STEP_TYPE_META[step.type].label}
+                                </span>
+                                <span className={`text-xs font-medium ml-1.5 ${step.completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                  {step.title}
+                                </span>
+                                <span className="text-[10px] text-gray-400 ml-auto">{step.durationMinutes}分钟</span>
+                              </div>
+                              <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{step.description}</p>
+                              {step.type === 'quiz' && step.quizQuestions && !step.completed && (
+                                <p className="text-[10px] text-yellow-600 mt-0.5">🎯 答题全部正确才可完成</p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => removeTeachStep(step.id)}
+                              title="删除步骤"
+                              className="ml-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 text-center py-3">
+                        还没有教学步骤，点 ✨ 让 AI 设计学习路径
+                      </p>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="text-center text-gray-500">
@@ -1280,6 +1559,165 @@ export function SkillTreePage() {
                 </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Quiz Modal：答题全部正确才完成 */}
+      {quizStep && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[32rem] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold flex items-center">
+                <GraduationCap className="w-5 h-5 text-yellow-600 mr-2" />
+                测验：{quizStep.title}
+              </h3>
+              <button
+                onClick={() => setQuizStep(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">全部答对才算完成（+5 XP），答错可查看解析后重试</p>
+
+            <div className="space-y-5">
+              {(quizStep.quizQuestions ?? []).map((q, qi) => (
+                <div key={qi}>
+                  <p className="text-sm font-medium text-gray-900 mb-2">
+                    {qi + 1}. {q.question}
+                  </p>
+                  <div className="space-y-1.5">
+                    {q.options.map((opt, oi) => {
+                      const selected = quizAnswers[qi] === oi
+                      const isCorrect = quizResult && !quizResult.pass && oi === q.answerIndex
+                      const isWrongPick = quizResult && !quizResult.pass && selected && oi !== q.answerIndex
+                      return (
+                        <button
+                          key={oi}
+                          onClick={() => {
+                            const next = [...quizAnswers]
+                            next[qi] = oi
+                            setQuizAnswers(next)
+                            setQuizResult(null)
+                          }}
+                          className={`w-full text-left text-sm px-3 py-2 rounded-lg border transition-colors ${
+                            isCorrect
+                              ? 'bg-green-50 border-green-400 text-green-800'
+                              : isWrongPick
+                              ? 'bg-red-50 border-red-400 text-red-700'
+                              : selected
+                              ? 'bg-indigo-50 border-indigo-400 text-indigo-800'
+                              : 'bg-white border-gray-200 text-gray-700 hover:border-indigo-300'
+                          }`}
+                        >
+                          {String.fromCharCode(65 + oi)}. {opt}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {quizResult && !quizResult.pass && (
+              <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm font-medium text-red-700 mb-2">
+                  有 {quizResult.wrong.length} 道答错了，看看解析：
+                </p>
+                {quizResult.wrong.map((w, i) => (
+                  <p key={i} className="text-xs text-red-600 mb-1">
+                    ❌ {w.question} — {w.explanation}
+                  </p>
+                ))}
+                <p className="text-xs text-gray-500 mt-2">修改答案后重新提交</p>
+              </div>
+            )}
+
+            <div className="flex space-x-3 mt-5">
+              <button
+                onClick={submitQuiz}
+                disabled={quizAnswers.some((a) => a === -1)}
+                className="flex-1 bg-yellow-600 text-white py-2 rounded-lg font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50"
+              >
+                提交答案
+              </button>
+              <button
+                onClick={() => setQuizStep(null)}
+                className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+              >
+                稍后再说
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Teach Step Modal */}
+      {showAddStep && selectedSkill && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[26rem]">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">添加教学步骤 · {selectedSkill.name}</h3>
+              <button onClick={() => setShowAddStep(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">步骤标题 *</label>
+                <input
+                  type="text"
+                  value={stepForm.title}
+                  onChange={(e) => setStepForm({ ...stepForm, title: e.target.value })}
+                  placeholder="例如：掌握 Flexbox 主轴对齐"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">学什么 / 怎么学</label>
+                <textarea
+                  rows={2}
+                  value={stepForm.description}
+                  onChange={(e) => setStepForm({ ...stepForm, description: e.target.value })}
+                  placeholder="具体要掌握什么、做什么练习"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">类型</label>
+                  <select
+                    value={stepForm.type}
+                    onChange={(e) => setStepForm({ ...stepForm, type: e.target.value as TeachStepType })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  >
+                    <option value="concept">概念（讲解）</option>
+                    <option value="practice">实践（练习）</option>
+                    <option value="project">项目（综合）</option>
+                    <option value="quiz">测验（答题）</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">时长（分钟）</label>
+                  <input
+                    type="number"
+                    min={5}
+                    step={5}
+                    value={stepForm.durationMinutes}
+                    onChange={(e) => setStepForm({ ...stepForm, durationMinutes: Number(e.target.value) || 30 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={addTeachStep}
+                disabled={!stepForm.title.trim()}
+                className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >
+                添加步骤
+              </button>
+            </div>
           </div>
         </div>
       )}
