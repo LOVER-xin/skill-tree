@@ -66,6 +66,7 @@ interface AppState extends Snapshot {
   resetTree: (treeId: string) => void
   addTree: (input: { name: string; description?: string; category?: string }) => string
   deleteTree: (treeId: string) => void
+  applyLayout: (treeId: string, positions: Record<string, { x: number; y: number }>) => void
 
   // 任务
   addTask: (task: Omit<Task, 'id' | 'status' | 'subtasks' | 'aiGenerated'> & { subtasks?: Task['subtasks'] }) => void
@@ -316,6 +317,25 @@ export const useAppStore = create<AppState>()(
             activeTreeId: activeTreeId === treeId ? remaining[0].id : activeTreeId,
           })
           if (tree) get().recordActivity(`删除了技能树「${tree.name}」`, 'skill')
+        },
+
+        applyLayout: (treeId, positions) => {
+          const tree = get().trees.find((t) => t.id === treeId)
+          if (!tree) return
+          pushHistory()
+          set((state) => ({
+            trees: state.trees.map((t) =>
+              t.id !== treeId
+                ? t
+                : {
+                    ...t,
+                    skills: t.skills.map((s) =>
+                      positions[s.id] ? { ...s, position: positions[s.id] } : s
+                    ),
+                  }
+            ),
+          }))
+          get().recordActivity(`重新布局了技能树「${tree.name}」`, 'skill')
         },
 
         tasks: seedTasks,

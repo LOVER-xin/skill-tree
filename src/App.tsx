@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { HashRouter as Router, Routes, Route } from 'react-router-dom'
 import { Navigation } from './components/Navigation'
 import { HomePage } from './pages/HomePage'
 import { SkillTreePage } from './pages/SkillTreePage'
@@ -9,7 +9,7 @@ import { ProfilePage } from './pages/ProfilePage'
 
 function App() {
   return (
-    <Router basename="/skill-tree">
+    <Router>
       <div className="min-h-screen bg-gray-50">
         <Navigation />
         <main className="pt-16">

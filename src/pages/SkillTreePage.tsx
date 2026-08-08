@@ -17,6 +17,7 @@ import {
   FolderPlus,
   FolderMinus,
   Bot,
+  LayoutGrid,
 } from 'lucide-react'
 import { SkillStatus, SkillLevel, SkillNode } from '../types'
 import { useAppStore, useActiveTree } from '../store'
@@ -29,6 +30,7 @@ import {
   AIError,
   AISkillSuggestion,
 } from '../utils/ai'
+import { computeTreeLayout, findSkillPosition, NODE_W } from '../utils/layout'
 
 type RecommendSource = 'local' | 'ai'
 
@@ -55,6 +57,7 @@ export function SkillTreePage() {
   const resetTree = useAppStore((s) => s.resetTree)
   const addTree = useAppStore((s) => s.addTree)
   const deleteTree = useAppStore((s) => s.deleteTree)
+  const applyLayout = useAppStore((s) => s.applyLayout)
   const recordActivity = useAppStore((s) => s.recordActivity)
   const recordAIAdoption = useAppStore((s) => s.recordAIAdoption)
   const undo = useAppStore((s) => s.undo)
@@ -85,10 +88,35 @@ export function SkillTreePage() {
   const [branchError, setBranchError] = useState<string | null>(null)
   const [branchSuggestions, setBranchSuggestions] = useState<AISkillSuggestion[]>([])
   const [branchChecked, setBranchChecked] = useState<Record<number, boolean>>({})
+  // 拖拽状态
+  const [draggingId, setDraggingId] = useState<string | null>(null)
 
   const skills = tree?.skills ?? []
   const selectedSkill = skills.find((s) => s.id === selectedSkillId) ?? null
   const localRecommendations: SkillRecommendation[] = recommendSkills(skills, 4)
+
+  // 画布尺寸：根据节点实际位置自适应（兼容人工布局与拖放）
+  const canvasW = Math.max(820, ...skills.map((s) => s.position.x + NODE_W / 2 + 40))
+  const canvasH = Math.max(600, ...skills.map((s) => s.position.y + 90))
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    if (!tree) return
+    const id = e.dataTransfer.getData('text/plain')
+    if (!id) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.max(NODE_W / 2, Math.min(canvasW - NODE_W / 2, e.clientX - rect.left))
+    const y = Math.max(40, Math.min(canvasH - 40, e.clientY - rect.top))
+    updateSkill(tree.id, id, { position: { x, y } })
+    setDraggingId(null)
+  }
+
+  const handleAutoLayout = () => {
+    if (!tree || tree.skills.length === 0) return
+    const { positions } = computeTreeLayout(tree.skills)
+    applyLayout(tree.id, Object.fromEntries(positions))
+    recordActivity(`以金字塔结构重新布局了「${tree.name}」`, 'skill')
+  }
 
   const getStatusIcon = (status: SkillStatus) => {
     switch (status) {
@@ -144,7 +172,7 @@ export function SkillTreePage() {
       prerequisites: form.prerequisites,
       estimatedHours: form.estimatedHours,
       tags: [tree.category, ...form.prerequisites.map((id) => skills.find((s) => s.id === id)?.name ?? '')],
-      position: { x: 400 + Math.random() * 100, y: 300 + Math.random() * 80 },
+      position: findSkillPosition(skills, form.prerequisites),
       custom: true,
     })
     setForm(emptyForm)
@@ -247,7 +275,7 @@ export function SkillTreePage() {
         prerequisites: [],
         estimatedHours: s.estimatedHours,
         tags: s.tags?.length ? s.tags : [tree.category],
-        position: { x: 400 + Math.random() * 200, y: 300 + Math.random() * 120 },
+        position: findSkillPosition(skills, []),
       })
     })
     recordAIAdoption('skill')
@@ -275,7 +303,7 @@ export function SkillTreePage() {
         prerequisites: [selectedSkill.id],
         estimatedHours: s.estimatedHours,
         tags: s.tags?.length ? s.tags : [selectedSkill.category],
-        position: { x: 400 + Math.random() * 200, y: 300 + Math.random() * 120 },
+        position: findSkillPosition(skills, [selectedSkill.id]),
       })
     })
     recordAIAdoption('skill')
@@ -329,6 +357,15 @@ export function SkillTreePage() {
             >
               <Sparkles className="w-4 h-4" />
               <span>智能推荐</span>
+            </button>
+            <button
+              onClick={handleAutoLayout}
+              disabled={!tree || tree.skills.length === 0}
+              title="按金字塔结构自动布局（基础在下，逐层向上）"
+              className="bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-40 flex items-center space-x-1"
+            >
+              <LayoutGrid className="w-4 h-4" />
+              <span className="hidden sm:inline">自动布局</span>
             </button>
             <button
               onClick={() => setShowNewTreeModal(true)}
@@ -403,8 +440,17 @@ export function SkillTreePage() {
                   </div>
                 </div>
               ) : (
-                <div className="relative overflow-auto" style={{ height: '600px' }}>
-                  <div className="relative" style={{ width: '820px', height: '600px' }}>
+                <div
+                  className="relative overflow-auto"
+                  style={{ height: `${Math.min(canvasH, 700)}px` }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDrop}
+                >
+                  <div className="relative" style={{ width: `${canvasW}px`, height: `${canvasH}px` }}>
+                    {/* 底部基础层 → 顶部高级层的方向提示 */}
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-300 font-medium tracking-widest select-none pointer-events-none" style={{ writingMode: 'vertical-rl' }}>
+                      高级 ▲ 基础
+                    </div>
                     <svg className="absolute inset-0 w-full h-full">
                       {skills.map((skill) =>
                         skill.prerequisites.map((preId) => {
@@ -431,11 +477,21 @@ export function SkillTreePage() {
                     {skills.map((skill) => (
                       <div
                         key={skill.id}
-                        className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer ${getStatusColor(skill.status)} border-2 rounded-xl p-4 w-48 shadow-sm hover:shadow-md transition-all ${
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', skill.id)
+                          e.dataTransfer.effectAllowed = 'move'
+                          setDraggingId(skill.id)
+                        }}
+                        onDragEnd={() => setDraggingId(null)}
+                        className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing select-none ${getStatusColor(skill.status)} border-2 rounded-xl p-4 w-48 shadow-sm hover:shadow-md transition-all ${
                           selectedSkillId === skill.id ? 'ring-2 ring-blue-500 scale-105' : ''
-                        }`}
+                        } ${draggingId === skill.id ? 'opacity-50 shadow-xl scale-105 z-10' : ''}`}
                         style={{ left: skill.position.x, top: skill.position.y }}
-                        onClick={() => setSelectedSkillId(skill.id)}
+                        onClick={() => {
+                          if (draggingId === skill.id) return
+                          setSelectedSkillId(skill.id)
+                        }}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <h3 className="font-semibold text-sm">{skill.name}</h3>
