@@ -744,6 +744,17 @@ export const useAppStore = create<AppState>()(
             }),
           }))
         }
+        // 圈子资源库补齐（按 id 对照 seedCircles）
+        if (merged.circles) {
+          const seedCircleMap = new Map(seedCircles.map((c) => [c.id, c]))
+          merged.circles = merged.circles.map((c) => {
+            if (c.resources && c.resources.length > 0) return c
+            const seedCircle = seedCircleMap.get(c.id)
+            return seedCircle?.resources?.length
+              ? { ...c, resources: seedCircle.resources }
+              : c
+          })
+        }
         return merged
       },
     }
