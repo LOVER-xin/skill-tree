@@ -10,6 +10,7 @@ import {
   Achievement,
   GameStats,
   SkillStatus,
+  TeachStep,
 } from '../types'
 import {
   seedTrees,
@@ -705,7 +706,7 @@ export const useAppStore = create<AppState>()(
         void future
         return rest
       },
-      // 兼容升级：把 seed 中的新增字段（如 teachSteps）合并进已持久化的旧数据，不丢用户进度
+      // 兼容升级：把 seed 中的新增字段（teachSteps/resources）合并进已持久化的旧数据，不丢用户进度
       merge: (persisted, current) => {
         const merged = { ...current, ...(persisted as Partial<AppState>) }
         if (merged.trees) {
@@ -715,11 +716,31 @@ export const useAppStore = create<AppState>()(
           merged.trees = merged.trees.map((t) => ({
             ...t,
             skills: t.skills.map((s) => {
-              if (s.teachSteps && s.teachSteps.length > 0) return s
               const seedSkill = seedSkillMap.get(s.id)
-              return seedSkill?.teachSteps?.length
-                ? { ...s, teachSteps: seedSkill.teachSteps }
-                : s
+              if (!seedSkill) return s
+              // 无 teachSteps：整体补齐
+              if (!s.teachSteps || s.teachSteps.length === 0) {
+                return seedSkill.teachSteps?.length
+                  ? { ...s, teachSteps: seedSkill.teachSteps }
+                  : s
+              }
+              // 已有 teachSteps：按步骤 id 补齐 seed 新增字段（resources/quizQuestions）
+              const seedSteps = new Map(
+                (seedSkill.teachSteps ?? []).map((st) => [st.id, st])
+              )
+              const mergedSteps = s.teachSteps.map((st) => {
+                const seedStep = seedSteps.get(st.id)
+                if (!seedStep) return st
+                const patch: Partial<TeachStep> = {}
+                if (!st.resources && seedStep.resources) {
+                  patch.resources = seedStep.resources
+                }
+                if (!st.quizQuestions && seedStep.quizQuestions) {
+                  patch.quizQuestions = seedStep.quizQuestions
+                }
+                return Object.keys(patch).length > 0 ? { ...st, ...patch } : st
+              })
+              return { ...s, teachSteps: mergedSteps }
             }),
           }))
         }
