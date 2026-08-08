@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Users, Hash, TrendingUp, MessageCircle, Heart, BookOpen, Calendar } from 'lucide-react'
+import { Users, Hash, TrendingUp, MessageCircle, Heart, BookOpen, Calendar, Bot, X } from 'lucide-react'
 import { useAppStore } from '../store'
 import { recommendCircles, collectUserSkillTags } from '../utils/recommend'
 import { useAllSkills } from '../store'
 import { SkillStatus } from '../types'
+import { aiRecommendCircles, hasAIConfig, AIError, AICircleSuggestion } from '../utils/ai'
 
 type Tab = 'recommend' | 'joined' | 'hot'
 
@@ -12,12 +13,20 @@ export function CirclesPage() {
   const joinedCircleIds = useAppStore((s) => s.joinedCircleIds)
   const joinCircle = useAppStore((s) => s.joinCircle)
   const leaveCircle = useAppStore((s) => s.leaveCircle)
+  const addCircle = useAppStore((s) => s.addCircle)
   const notes = useAppStore((s) => s.notes)
   const noteLikes = useAppStore((s) => s.noteLikes)
   const gameStats = useAppStore((s) => s.gameStats)
+  const recordAIAdoption = useAppStore((s) => s.recordAIAdoption)
+  const recordActivity = useAppStore((s) => s.recordActivity)
   const allSkills = useAllSkills()
 
   const [tab, setTab] = useState<Tab>('recommend')
+  const [showAIModal, setShowAIModal] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiCircles, setAiCircles] = useState<AICircleSuggestion[]>([])
+  const [aiChecked, setAiChecked] = useState<Record<number, boolean>>({})
 
   const masteredTags = useMemo(
     () =>
@@ -41,16 +50,71 @@ export function CirclesPage() {
 
   const totalLikes = Object.values(noteLikes).reduce((a, b) => a + b, 0)
 
+  /* ============ AI 推荐圈子 ============ */
+
+  const runAICircles = async () => {
+    setAiError(null)
+    setAiCircles([])
+    if (!hasAIConfig()) {
+      setAiError('尚未配置 AI 服务：请到「我的 → 设置」填写 API Key（支持 DeepSeek/通义/Kimi/OpenAI 等）')
+      return
+    }
+    setAiLoading(true)
+    try {
+      const result = await aiRecommendCircles(masteredTags, circles)
+      setAiCircles(result)
+      setAiChecked(Object.fromEntries(result.map((_, i) => [i, true])))
+    } catch (e) {
+      setAiError(e instanceof AIError ? e.message : (e as Error).message)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const adoptAICircles = () => {
+    const picked = aiCircles.filter((_, i) => aiChecked[i])
+    if (picked.length === 0) return
+    picked.forEach((c) => {
+      addCircle({
+        name: c.name,
+        description: c.description,
+        category: c.category || 'AI 推荐',
+        tags: c.tags?.length ? c.tags : [],
+        skillTags: c.skillTags?.length ? c.skillTags : [],
+        memberCount: 1,
+      })
+    })
+    recordAIAdoption('circle')
+    setShowAIModal(false)
+    setAiCircles([])
+    recordActivity(`采纳了 AI 推荐的 ${picked.length} 个学习圈子`, 'circle')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center mb-2">
-            <Users className="w-8 h-8 mr-3 text-purple-600" />
-            学习圈子
-          </h1>
-          <p className="text-gray-600">找到志同道合的学习伙伴，一起成长进步</p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 flex items-center mb-2">
+                <Users className="w-8 h-8 mr-3 text-purple-600" />
+                学习圈子
+              </h1>
+              <p className="text-gray-600">找到志同道合的学习伙伴，一起成长进步</p>
+            </div>
+            <button
+              onClick={() => {
+                setAiError(null)
+                setAiCircles([])
+                setShowAIModal(true)
+              }}
+              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
+            >
+              <Bot className="w-4 h-4" />
+              <span>AI 推荐圈子</span>
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -241,6 +305,98 @@ export function CirclesPage() {
           </div>
         )}
       </div>
+      {/* AI Recommend Circles Modal */}
+      {showAIModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[32rem] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center">
+                <Bot className="w-5 h-5 text-purple-600 mr-2" />
+                AI 推荐学习圈子
+              </h3>
+              <button onClick={() => setShowAIModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-4">
+              基于你的技能标签（{masteredTags.slice(0, 8).join('、') || '暂无'}）生成圈子建议，确认后创建并自动加入。
+            </p>
+
+            {aiCircles.length === 0 && !aiLoading && !aiError && (
+              <button
+                onClick={runAICircles}
+                className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors"
+              >
+                生成圈子推荐
+              </button>
+            )}
+
+            {aiLoading && (
+              <div className="text-center py-10">
+                <div className="animate-spin w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+                <p className="text-gray-600 text-sm">AI 正在寻找合适的学习圈子...</p>
+              </div>
+            )}
+
+            {aiError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 mb-3">
+                <p className="font-medium mb-1">AI 调用失败</p>
+                <p>{aiError}</p>
+              </div>
+            )}
+
+            {aiCircles.length > 0 && (
+              <>
+                <div className="space-y-3 mb-4">
+                  {aiCircles.map((c, i) => (
+                    <label key={i} className={`block p-4 rounded-lg border cursor-pointer transition-colors ${aiChecked[i] ? 'bg-purple-50 border-purple-300' : 'bg-gray-50 border-gray-200'}`}>
+                      <div className="flex items-start">
+                        <input
+                          type="checkbox"
+                          checked={!!aiChecked[i]}
+                          onChange={() => setAiChecked({ ...aiChecked, [i]: !aiChecked[i] })}
+                          className="mt-1 mr-3 rounded"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-semibold text-gray-900">{c.name}</h4>
+                            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{c.category || 'AI 推荐'}</span>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-1">{c.description}</p>
+                          <p className="text-xs text-gray-500 mb-1">💡 {c.reason}</p>
+                          {c.skillTags?.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {c.skillTags.slice(0, 4).map((t) => (
+                                <span key={t} className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">#{t}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={adoptAICircles}
+                    disabled={!Object.values(aiChecked).some(Boolean)}
+                    className="flex-1 bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors disabled:opacity-50"
+                  >
+                    创建并加入（{Object.values(aiChecked).filter(Boolean).length} 个）
+                  </button>
+                  <button
+                    onClick={runAICircles}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                  >
+                    换一批
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

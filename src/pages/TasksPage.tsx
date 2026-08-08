@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { CheckSquare, Plus, Calendar, Tag, Clock, Filter, X } from 'lucide-react'
-import { Task } from '../types'
+import { CheckSquare, Plus, Calendar, Tag, Clock, Filter, X, Bot } from 'lucide-react'
+import { Task, SkillStatus } from '../types'
 import { useAppStore } from '../store'
 import { useActiveTree } from '../store'
 import { formatDuration } from '../utils'
+import { aiGenerateTasks, hasAIConfig, AIError, AITaskSuggestion } from '../utils/ai'
 
 export function TasksPage() {
   const tasks = useAppStore((s) => s.tasks)
@@ -11,10 +12,18 @@ export function TasksPage() {
   const deleteTask = useAppStore((s) => s.deleteTask)
   const toggleSubtask = useAppStore((s) => s.toggleSubtask)
   const setTaskStatus = useAppStore((s) => s.setTaskStatus)
+  const recordAIAdoption = useAppStore((s) => s.recordAIAdoption)
+  const recordActivity = useAppStore((s) => s.recordActivity)
   const tree = useActiveTree()
 
   const [filter, setFilter] = useState<'all' | 'todo' | 'in-progress' | 'completed'>('all')
   const [showAddTask, setShowAddTask] = useState(false)
+  const [showAIModal, setShowAIModal] = useState(false)
+  const [aiSkillId, setAiSkillId] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiTasks, setAiTasks] = useState<AITaskSuggestion[]>([])
+  const [aiChecked, setAiChecked] = useState<Record<number, boolean>>({})
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -26,6 +35,7 @@ export function TasksPage() {
 
   const filteredTasks = tasks.filter((task) => filter === 'all' || task.status === filter)
   const skillName = (id?: string) => tree?.skills.find((s) => s.id === id)?.name
+  const aiSkills = tree?.skills.filter((s) => s.status !== SkillStatus.LOCKED) ?? []
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -70,6 +80,58 @@ export function TasksPage() {
     setShowAddTask(false)
   }
 
+  /* ============ AI 生成任务 ============ */
+
+  const runAITasks = async () => {
+    setAiError(null)
+    setAiTasks([])
+    if (!hasAIConfig()) {
+      setAiError('尚未配置 AI 服务：请到「我的 → 设置」填写 API Key（支持 DeepSeek/通义/Kimi/OpenAI 等）')
+      return
+    }
+    const skill = tree?.skills.find((s) => s.id === aiSkillId)
+    if (!skill) {
+      setAiError('请先选择一个技能')
+      return
+    }
+    setAiLoading(true)
+    try {
+      const result = await aiGenerateTasks(skill, tasks)
+      setAiTasks(result)
+      setAiChecked(Object.fromEntries(result.map((_, i) => [i, true])))
+    } catch (e) {
+      setAiError(e instanceof AIError ? e.message : (e as Error).message)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const adoptAITasks = () => {
+    const picked = aiTasks.filter((_, i) => aiChecked[i])
+    if (picked.length === 0) return
+    picked.forEach((t) => {
+      addTask({
+        title: t.title,
+        description: t.description,
+        skillId: aiSkillId || undefined,
+        priority: t.priority,
+        estimatedMinutes: t.estimatedMinutes,
+        tags: t.tags?.length ? t.tags : ['AI推荐'],
+        subtasks: (t.subtasks ?? []).map((st, i) => ({
+          id: `sub-${Date.now()}-${i}`,
+          title: st.title,
+          completed: false,
+          estimatedMinutes: st.estimatedMinutes ?? Math.round(t.estimatedMinutes / 3),
+        })),
+        dueDate: new Date(Date.now() + 3 * 86400000),
+      })
+    })
+    recordAIAdoption('task')
+    setShowAIModal(false)
+    setAiTasks([])
+    recordActivity(`采纳了 AI 生成的 ${picked.length} 个学习任务`, 'task')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -82,13 +144,27 @@ export function TasksPage() {
             </h1>
             <p className="text-gray-600 mt-2">管理你的学习任务，追踪技能成长进度</p>
           </div>
-          <button
-            onClick={() => setShowAddTask(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>新建任务</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                setAiError(null)
+                setAiTasks([])
+                setAiSkillId('')
+                setShowAIModal(true)
+              }}
+              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2"
+            >
+              <Bot className="w-4 h-4" />
+              <span>AI 生成任务</span>
+            </button>
+            <button
+              onClick={() => setShowAddTask(true)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
+            >
+              <Plus className="w-4 h-4" />
+              <span>新建任务</span>
+            </button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -337,6 +413,109 @@ export function TasksPage() {
                 创建任务
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* AI Generate Tasks Modal */}
+      {showAIModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[32rem] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center">
+                <Bot className="w-5 h-5 text-purple-600 mr-2" />
+                AI 生成学习任务
+              </h3>
+              <button onClick={() => setShowAIModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">选择技能</label>
+              <select
+                value={aiSkillId}
+                onChange={(e) => setAiSkillId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                <option value="">请选择技能...</option>
+                {aiSkills.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}（{s.status === 'completed' ? '已掌握' : s.status === 'learning' ? '学习中' : '可学习'}）</option>
+                ))}
+              </select>
+            </div>
+
+            {aiTasks.length === 0 && !aiLoading && !aiError && (
+              <button
+                onClick={runAITasks}
+                disabled={!aiSkillId}
+                className="w-full bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors disabled:opacity-50"
+              >
+                生成任务
+              </button>
+            )}
+
+            {aiLoading && (
+              <div className="text-center py-10">
+                <div className="animate-spin w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+                <p className="text-gray-600 text-sm">AI 正在拆解学习任务...</p>
+              </div>
+            )}
+
+            {aiError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 mb-3">
+                <p className="font-medium mb-1">AI 调用失败</p>
+                <p>{aiError}</p>
+              </div>
+            )}
+
+            {aiTasks.length > 0 && (
+              <>
+                <div className="space-y-3 mb-4">
+                  {aiTasks.map((t, i) => (
+                    <label key={i} className={`block p-4 rounded-lg border cursor-pointer transition-colors ${aiChecked[i] ? 'bg-purple-50 border-purple-300' : 'bg-gray-50 border-gray-200'}`}>
+                      <div className="flex items-start">
+                        <input
+                          type="checkbox"
+                          checked={!!aiChecked[i]}
+                          onChange={() => setAiChecked({ ...aiChecked, [i]: !aiChecked[i] })}
+                          className="mt-1 mr-3 rounded"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-semibold text-gray-900">{t.title}</h4>
+                            <span className="text-xs text-gray-500">{formatDuration(t.estimatedMinutes)}</span>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-1">{t.description}</p>
+                          <p className="text-xs text-gray-500 mb-1">💡 {t.reason}</p>
+                          <div className="flex flex-wrap gap-1">
+                            {(t.subtasks ?? []).map((st, j) => (
+                              <span key={j} className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">
+                                {st.title}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={adoptAITasks}
+                    disabled={!Object.values(aiChecked).some(Boolean)}
+                    className="flex-1 bg-purple-600 text-white py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors disabled:opacity-50"
+                  >
+                    加入任务列表（{Object.values(aiChecked).filter(Boolean).length} 个）
+                  </button>
+                  <button
+                    onClick={runAITasks}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                  >
+                    换一批
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

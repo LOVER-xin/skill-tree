@@ -115,8 +115,10 @@ export interface Achievement {
   name: string
   description: string
   icon: string
-  type: 'skill' | 'learning' | 'social' | 'streak'
-  condition: string        // 解锁条件
+  type: 'skill' | 'learning' | 'social' | 'streak' | 'creation' | 'milestone'
+  condition: string        // 解锁条件（人类可读）
+  progressType?: 'completedTasks' | 'masteredSkills' | 'notes' | 'joinedCircles' | 'totalXp' | 'level' | 'currentStreak' | 'totalLikes' | 'aiAdoptions' | 'customSkills'
+  progressTarget?: number  // 解锁所需数值（配合 progressType 显示进度条）
   unlockedAt?: Date
   xpReward: number
 }

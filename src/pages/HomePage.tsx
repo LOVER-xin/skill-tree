@@ -12,12 +12,15 @@ import {
   BarChart3,
   Sparkles,
   ArrowRight,
+  Bot,
 } from 'lucide-react'
+import { useState } from 'react'
 import { useAppStore, getLevel } from '../store'
 import { useAllSkills } from '../store'
 import { recommendSkills } from '../utils/recommend'
 import { SkillStatus } from '../types'
 import { formatDuration } from '../utils'
+import { aiRecommendSkills, hasAIConfig, AIError, AISkillSuggestion } from '../utils/ai'
 
 export function HomePage() {
   const navigate = useNavigate()
@@ -26,16 +29,39 @@ export function HomePage() {
   const toggleSubtask = useAppStore((s) => s.toggleSubtask)
   const gameStats = useAppStore((s) => s.gameStats)
   const allSkills = useAllSkills()
+  const tree = useAppStore((s) => s.trees.find((t) => t.id === s.activeTreeId))
+
+  const [recSource, setRecSource] = useState<'local' | 'ai'>('local')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiRecs, setAiRecs] = useState<AISkillSuggestion[]>([])
 
   const level = getLevel(user.totalXp)
   const masteredCount = allSkills.filter((s) => s.status === SkillStatus.COMPLETED).length
 
   // 今日推荐：本地规则算法（前置完成 + 高需求 + 路径）
-  const recommendations = recommendSkills(allSkills, 3)
+  const localRecommendations = recommendSkills(allSkills, 3)
   // 今日任务：未完成的前 3 个
   const todayTasks = tasks
     .filter((t) => t.status !== 'completed')
     .slice(0, 3)
+
+  const runAIRecommend = async () => {
+    setAiError(null)
+    if (!hasAIConfig()) {
+      setAiError('未配置 AI 服务（我的 → 设置），当前仅显示本地推荐')
+      return
+    }
+    setAiLoading(true)
+    try {
+      const result = await aiRecommendSkills(tree, { name: user.name, totalXp: user.totalXp })
+      setAiRecs(result)
+    } catch (e) {
+      setAiError(e instanceof AIError ? e.message : (e as Error).message)
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -180,36 +206,90 @@ export function HomePage() {
             <div className="bg-white rounded-xl p-6 shadow-sm">
               <div className="flex items-center mb-4">
                 <TrendingUp className="w-5 h-5 text-blue-600 mr-2" />
-                <h3 className="text-lg font-semibold text-gray-900">智能推荐技能</h3>
+                <h3 className="text-lg font-semibold text-gray-900">推荐技能</h3>
                 <Sparkles className="w-4 h-4 text-yellow-500 ml-2" />
+                <div className="ml-auto flex space-x-1 bg-gray-100 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setRecSource('local')}
+                    className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                      recSource === 'local' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+                    }`}
+                  >
+                    本地
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRecSource('ai')
+                      if (aiRecs.length === 0 && !aiLoading) runAIRecommend()
+                    }}
+                    className={`px-2 py-0.5 rounded text-xs font-medium transition-colors flex items-center space-x-0.5 ${
+                      recSource === 'ai' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+                    }`}
+                  >
+                    <Bot className="w-3 h-3" />
+                    <span>AI</span>
+                  </button>
+                </div>
               </div>
-              {recommendations.length > 0 ? (
+
+              {recSource === 'local' ? (
+                localRecommendations.length > 0 ? (
+                  <div className="space-y-3">
+                    {localRecommendations.map(({ skill, reason, learningPath }) => (
+                      <div key={skill.id} className="p-3 bg-blue-50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-gray-900">{skill.name}</p>
+                            <p className="text-sm text-gray-600">{reason}</p>
+                            <p className="text-xs text-blue-600 mt-1">
+                              路径: {learningPath.join(' → ')} · 约{skill.estimatedHours}小时
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => navigate('/skill-tree')}
+                            className="flex items-center text-blue-600 text-sm font-medium hover:text-blue-800 whitespace-nowrap ml-3"
+                          >
+                            开始学习 <ArrowRight className="w-3 h-3 ml-1" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm">
+                    所有技能都已掌握或解锁中，去技能树添加新技能吧
+                  </p>
+                )
+              ) : aiLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+                  <p className="text-gray-600 text-sm">AI 正在分析你的技能进度...</p>
+                </div>
+              ) : aiError ? (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
+                  {aiError}
+                </div>
+              ) : aiRecs.length > 0 ? (
                 <div className="space-y-3">
-                  {recommendations.map(({ skill, reason, learningPath }) => (
-                    <div key={skill.id} className="p-3 bg-blue-50 rounded-lg">
+                  {aiRecs.map((s, i) => (
+                    <div key={i} className="p-3 bg-purple-50 rounded-lg">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium text-gray-900">{skill.name}</p>
-                          <p className="text-sm text-gray-600">{reason}</p>
-                          <p className="text-xs text-blue-600 mt-1">
-                            路径: {learningPath.join(' → ')} · 约{skill.estimatedHours}小时
-                          </p>
+                          <p className="font-medium text-gray-900">🤖 {s.name}</p>
+                          <p className="text-sm text-gray-600">{s.description}</p>
+                          <p className="text-xs text-purple-600 mt-1">💡 {s.reason}</p>
                         </div>
                         <button
                           onClick={() => navigate('/skill-tree')}
-                          className="flex items-center text-blue-600 text-sm font-medium hover:text-blue-800 whitespace-nowrap ml-3"
+                          className="flex items-center text-purple-600 text-sm font-medium hover:text-purple-800 whitespace-nowrap ml-3"
                         >
-                          开始学习 <ArrowRight className="w-3 h-3 ml-1" />
+                          去技能树 <ArrowRight className="w-3 h-3 ml-1" />
                         </button>
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="text-gray-500 text-sm">
-                  所有技能都已掌握或解锁中，去技能树添加新技能吧
-                </p>
-              )}
+              ) : null}
             </div>
 
             {/* Today's Tasks */}
