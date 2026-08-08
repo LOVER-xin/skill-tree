@@ -134,5 +134,55 @@ check('localStorage 已写入持久化数据', Object.keys(globalThis.localStora
 const persisted = JSON.parse(globalThis.localStorage._d['ai-skill-tree-data'])
 check('持久化不含撤销历史', !('past' in persisted.state) && !('future' in persisted.state))
 
+// ============ 漏洞修复回归测试 ============
+
+// 14. H3 刷 XP 防护：完成 → 取消 → 再完成，净额只算一次
+const tA = useAppStore.getState().tasks.find((t) => t.id === 'task-git-basics')
+const xp0 = useAppStore.getState().user.totalXp
+tA.subtasks.forEach((st) => useAppStore.getState().toggleSubtask(tA.id, st.id)) // 完成
+const xp1 = useAppStore.getState().user.totalXp
+useAppStore.getState().toggleSubtask(tA.id, tA.subtasks[0].id) // 取消一个 → 回退
+const xp2 = useAppStore.getState().user.totalXp
+useAppStore.getState().toggleSubtask(tA.id, tA.subtasks[0].id) // 再勾满 → 再完成
+const xp3 = useAppStore.getState().user.totalXp
+check('H3 刷 XP 防护：完成→取消→再完成 净额正确', xp3 - xp0 === xp1 - xp0 && xp2 === xp0 && xp3 - xp0 > 0)
+
+// 15. H5 跨树任务关联：后端树技能的任务完成 → 技能 XP 推进
+useAppStore.getState().addTask({
+  title: '跨树测试任务',
+  description: '关联后端技能',
+  skillId: 'be-node',
+  priority: 'medium',
+  estimatedMinutes: 60,
+  tags: ['测试'],
+  subtasks: [
+    { id: 'cross-1', title: '学习', completed: false, estimatedMinutes: 20 },
+    { id: 'cross-2', title: '实践', completed: false, estimatedMinutes: 20 },
+    { id: 'cross-3', title: '总结', completed: false, estimatedMinutes: 20 },
+  ],
+})
+const crossTask = useAppStore.getState().tasks.find((t) => t.title === '跨树测试任务')
+const beNodeBefore = useAppStore.getState().trees.find((t) => t.id === 'tree-backend').skills.find((s) => s.id === 'be-node').xp
+crossTask.subtasks.forEach((st) => useAppStore.getState().toggleSubtask(crossTask.id, st.id))
+const beNodeAfter = useAppStore.getState().trees.find((t) => t.id === 'tree-backend').skills.find((s) => s.id === 'be-node').xp
+check('H5 跨树：后端技能 XP 被推进', beNodeAfter === Math.min(beNodeBefore + Math.round(120 * 0.2), 120) && beNodeAfter > beNodeBefore)
+
+// 16. H1 streak：今天首次学习活动 → currentStreak >= 1
+check('H1 streak 更新（今天有活动）', useAppStore.getState().gameStats.currentStreak >= 1)
+
+// 17. H4 setTaskStatus 统计口径：完成按钮路径也计入
+const tB = useAppStore.getState().tasks.find((t) => t.id === 'task-ts-docs')
+const statsBefore = useAppStore.getState().gameStats.totalTasksCompleted
+useAppStore.getState().setTaskStatus(tB.id, 'completed')
+const statsAfter = useAppStore.getState().gameStats.totalTasksCompleted
+check('H4 setTaskStatus 计入统计', statsAfter === statsBefore + 1)
+
+// 18. recordAIAdoption 可撤销
+useAppStore.getState().recordAIAdoption('skill')
+const aiCount1 = useAppStore.getState().aiAdoptions
+useAppStore.getState().undo()
+const aiCount2 = useAppStore.getState().aiAdoptions
+check('H6 recordAIAdoption 纳入撤销', aiCount1 === aiCount2 + 1)
+
 console.log(`\n结果: ${pass} 通过, ${fail} 失败`)
 process.exit(fail > 0 ? 1 : 0)

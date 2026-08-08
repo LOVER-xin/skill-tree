@@ -389,20 +389,36 @@ export async function aiAuditTree(tree: SkillTreeTemplate): Promise<AITreeAudit>
 /* ==================== 连接测试 ==================== */
 
 export async function testAIConnection(cfg: AIConfig): Promise<{ ok: boolean; message: string }> {
-  const prev = getAIConfig()
-  saveAIConfig(cfg)
+  const url = `${cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`
   try {
-    const content = await aiChat(
-      [
-        { role: 'system', content: '你是连接测试助手。请只回复两个字：正常' },
-        { role: 'user', content: '测试连接' },
-      ],
-      { temperature: 0, maxTokens: 10 }
-    )
-    return { ok: true, message: `连接成功，模型返回：${content.trim().slice(0, 50)}` }
+    const res = await aiFetcher(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cfg.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [
+          { role: 'system', content: '你是连接测试助手。请只回复两个字：正常' },
+          { role: 'user', content: '测试连接' },
+        ],
+        temperature: 0,
+        max_tokens: 10,
+      }),
+    })
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const body = await res.json()
+        detail = (body as { error?: { message?: string } }).error?.message ?? ''
+      } catch { /* ignore */ }
+      return { ok: false, message: `AI 服务返回错误 ${res.status}：${detail || res.statusText}` }
+    }
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] }
+    const content = data.choices?.[0]?.message?.content
+    return { ok: true, message: `连接成功，模型返回：${(content ?? '').trim().slice(0, 50) || '（空）'}` }
   } catch (e) {
-    return { ok: false, message: (e as Error).message }
-  } finally {
-    saveAIConfig(prev)
+    return { ok: false, message: `无法连接 AI 服务（${cfg.baseUrl}）：${(e as Error).message}` }
   }
 }
