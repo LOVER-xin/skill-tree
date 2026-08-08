@@ -9,7 +9,9 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "test:store": "esbuild src/store/index.ts --bundle --format=esm --outfile=scripts/.tmp/store-bundle.mjs --log-level=error && esbuild src/utils/recommend.ts --bundle --format=esm --outfile=scripts/.tmp/recommend-bundle.mjs --log-level=error && node scripts/verify-store.mjs",
+    "test:ssr": "esbuild scripts/ssr-smoke.tsx --bundle --format=esm --outfile=scripts/.tmp/ssr-smoke.mjs --log-level=error --jsx=automatic && node scripts/.tmp/ssr-smoke.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
