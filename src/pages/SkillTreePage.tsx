@@ -1596,9 +1596,8 @@ export function SkillTreePage() {
                         <button
                           key={oi}
                           onClick={() => {
-                            const next = [...quizAnswers]
-                            next[qi] = oi
-                            setQuizAnswers(next)
+                            // 函数式更新：避免同步连点时的旧闭包互相覆盖
+                            setQuizAnswers((prev) => prev.map((a, i) => (i === qi ? oi : a)))
                             setQuizResult(null)
                           }}
                           className={`w-full text-left text-sm px-3 py-2 rounded-lg border transition-colors ${
