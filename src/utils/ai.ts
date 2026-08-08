@@ -78,7 +78,7 @@ export async function aiChat(
         model: cfg.model,
         messages,
         temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.maxTokens ?? 2048,
+        max_tokens: opts.maxTokens ?? 4096,
         ...(opts.json ? { response_format: { type: 'json_object' } } : {}),
       }),
     })
