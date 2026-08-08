@@ -1707,7 +1707,29 @@ export function SkillTreePage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-500 mb-4">全部答对才算完成（+5 XP），答错可查看解析后重试</p>
+            <p className="text-xs text-gray-500 mb-4">全部答对才算完成（+5 XP），答错可查看解析与复习资料后重试</p>
+
+            {/* 复习资源：测验前巩固（AI 推送的衍生内容） */}
+            {(quizStep.resources ?? []).length > 0 && (
+              <div className="mb-4 p-3 rounded-lg bg-indigo-50/70 border border-indigo-100">
+                <p className="text-[11px] font-medium text-indigo-700 mb-1.5">📚 测验前的复习资料（AI 推荐）</p>
+                <div className="space-y-1.5">
+                  {(quizStep.resources ?? []).map((r) => (
+                    <a
+                      key={r.id}
+                      href={r.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center text-[11px] text-gray-700 hover:text-indigo-700 bg-white rounded px-2 py-1 border border-indigo-100 transition-colors"
+                    >
+                      <span className="mr-1">{r.type === 'course' ? '🎓' : r.type === 'video' ? '🎬' : '📄'}</span>
+                      <span className="flex-1 truncate">{r.title}</span>
+                      <span className="text-indigo-500 ml-2">打开 →</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-5">
               {(quizStep.quizQuestions ?? []).map((q, qi) => (
@@ -1757,7 +1779,30 @@ export function SkillTreePage() {
                     ❌ {w.question} — {w.explanation}
                   </p>
                 ))}
-                <p className="text-xs text-gray-500 mt-2">修改答案后重新提交</p>
+                {(quizStep.resources ?? []).length > 0 ? (
+                  <div className="mt-2 pt-2 border-t border-red-200">
+                    <p className="text-xs font-medium text-red-700 mb-1">
+                      💡 建议先学习这些复习资料，再回来重试：
+                    </p>
+                    <div className="space-y-1">
+                      {(quizStep.resources ?? []).map((r) => (
+                        <a
+                          key={r.id}
+                          href={r.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center text-xs text-gray-700 hover:text-indigo-700 bg-white rounded px-2 py-1 border border-red-100"
+                        >
+                          <span className="mr-1">{r.type === 'course' ? '🎓' : r.type === 'video' ? '🎬' : '📄'}</span>
+                          <span className="flex-1 truncate">{r.title}</span>
+                          <span className="text-red-500 ml-2">打开 →</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-2">修改答案后重新提交</p>
+                )}
               </div>
             )}
 

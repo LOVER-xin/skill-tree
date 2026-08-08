@@ -390,8 +390,9 @@ export async function aiGenerateTeachSteps(
     '你是课程设计专家。为指定技能设计 4-6 步深度学习路径，遵循「概念理解 → 动手实践 → 综合项目 → 检验巩固」的递进结构，逐步加深难度。' +
     '步骤要具体可执行（说明学什么、怎么学），不要重复已有步骤。' +
     '其中必须包含 1 个 quiz 类型步骤（检验知识），quiz 步骤必须带 quizQuestions（2-3 道单选题）。' +
-    '每个非 quiz 步骤必须带 1-2 个真实学习资源 resources（课程/文章/视频），资源必须是真实存在的知名网站：MDN（developer.mozilla.org）、JavaScript.info（zh.javascript.info）、freeCodeCamp（freecodecamp.org）、React 官方（react.dev）、Vue 官方（cn.vuejs.org）、TypeScript 官方（typescriptlang.org）、Node 官方（nodejs.org）、YouTube 官方频道等。禁止编造不存在的 URL。' +
-    '返回 JSON 数组，每项格式：{"title":"步骤标题","description":"学什么/怎么学","type":"concept|practice|project|quiz","durationMinutes":分钟数,"quizQuestions":[{"question":"题目","options":["选项A","选项B","选项C","选项D"],"answerIndex":0,"explanation":"解析"}],"resources":[{"type":"course|article|video","title":"资源标题","url":"真实URL","source":"来源网站","durationMinutes":分钟,"description":"为什么学这个"}]}（quiz 步骤可不带 resources）'
+    '每个步骤（包括 quiz 步骤）都必须带 1-2 个真实学习资源 resources（课程/文章/视频）；quiz 步骤的资源是「复习资料」，应指向能巩固测验所考知识的官方文档或教程页。' +
+    '资源必须是真实存在的知名网站：MDN（developer.mozilla.org）、JavaScript.info（zh.javascript.info）、freeCodeCamp（freecodecamp.org）、React 官方（react.dev）、Vue 官方（cn.vuejs.org）、TypeScript 官方（typescriptlang.org）、Node 官方（nodejs.org）、YouTube 官方频道等。禁止编造不存在的 URL。' +
+    '返回 JSON 数组，每项格式：{"title":"步骤标题","description":"学什么/怎么学","type":"concept|practice|project|quiz","durationMinutes":分钟数,"quizQuestions":[{"question":"题目","options":["选项A","选项B","选项C","选项D"],"answerIndex":0,"explanation":"解析"}],"resources":[{"type":"course|article|video","title":"资源标题","url":"真实URL","source":"来源网站","durationMinutes":分钟,"description":"为什么学这个"}]}'
   const userPrompt = `技能：${skill.name}（${skill.description}，分类：${skill.category}）\n已有步骤：${existingSteps.map((s) => s.title).join('、') || '（无）'}\n请设计深度学习路径。`
   return aiJson<AITeachStepSuggestion[]>(system, userPrompt, isTeachStepList)
 }

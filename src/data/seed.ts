@@ -114,6 +114,10 @@ export const seedTrees: SkillTreeTemplate[] = [
             description: '5 道题检验本技能所学（变量/函数/数组方法/事件/异步），全部答对才算完成',
             type: 'quiz',
             durationMinutes: 20,
+            resources: [
+              { id: 'r-js-s7-1', type: 'article', title: 'MDN：JavaScript 指南（测验知识点全覆盖）', url: 'https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide', source: 'MDN', durationMinutes: 90, description: '测验前复习：语法/函数/数组/异步全覆盖' },
+              { id: 'r-js-s7-2', type: 'course', title: 'freeCodeCamp：JavaScript 基础练习', url: 'https://www.freecodecamp.org/learn/javascript-algorithms-and-data-structures/', source: 'freeCodeCamp', durationMinutes: 60, description: '用练习巩固测验涉及的知识点' },
+            ],
             quizQuestions: [
               {
                 question: 'let 与 const 的主要区别是？',
